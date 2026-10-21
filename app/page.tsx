@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { LEAGUES, type Game, type Sport } from "@/lib/espn";
 import type { Analysis } from "@/lib/ai";
-import { buildParlays, MAX_APUESTAS, type GameOptions } from "@/lib/parlay";
+import { buildParlays, comboMaxSize, MAX_APUESTAS, type GameOptions } from "@/lib/parlay";
 import { AnalysisView } from "./AnalysisView";
 import { ParlayView } from "./ParlayView";
 import { MarketPicker } from "./MarketPicker";
@@ -115,6 +115,7 @@ export default function Home() {
   const [minLegs, setMinLegs] = useState(2);
   const [maxLegs, setMaxLegs] = useState(4);
   const [sameGame, setSameGame] = useState(true);
+  const minGames = sameGame ? 1 : 2;
   const [mercados, setMercados] = useState<MarketSelection>(DEFAULT_MARKETS);
   const [parlayData, setParlayData] = useState<ParlayData | null>(null);
   const [parlayBusy, setParlayBusy] = useState(false);
@@ -179,7 +180,7 @@ export default function Home() {
       const res = await fetch("/api/parlay", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ games: legs, mercados }),
+        body: JSON.stringify({ games: legs, mercados, sameGame, maxLegs }),
       });
       const data = await res.json().catch(() => ({ error: `Error ${res.status}` }));
       if (!res.ok) throw new Error(data.error ?? `Error ${res.status}`);
@@ -457,19 +458,21 @@ export default function Home() {
                   onChange={saveMercados}
                 />
               </details>
-              <label className="row small" style={{ cursor: "pointer" }}>
+              <label className="check small">
                 <input type="checkbox" checked={sameGame} onChange={(e) => setSameGame(e.target.checked)} />
                 Permitir varias apuestas del mismo partido (ej. Cowboys ganan + Dak más de 224.5 yardas)
               </label>
               {legs.length > 0 && legs.length < maxLegs && (
                 <div className="small muted">
                   {sameGame
-                    ? `Con ${legs.length} partidos, para llegar a ${maxLegs} apuestas se usarán combinadas del mismo partido (de 2 a 3 apuestas cada una).`
+                    ? legs.length === 1
+                      ? `Parlay de un solo partido: la IA combinará de 2 a ${comboMaxSize(1, maxLegs)} apuestas de este partido (goles, tarjetas, córners…).`
+                      : `Con ${legs.length} partidos, para llegar a ${maxLegs} apuestas se usarán combinadas del mismo partido.`
                     : `Con ${legs.length} partidos el parlay más grande será de ${legs.length}.`}
                 </div>
               )}
-              <button className="btn primary big" disabled={parlayBusy || legs.length < 2} onClick={armarParlay}>
-                {parlayBusy ? "Analizando partidos…" : legs.length < 2 ? "Agrega al menos 2 partidos" : "🎯 Armar parlay"}
+              <button className="btn primary big" disabled={parlayBusy || legs.length < minGames} onClick={armarParlay}>
+                {parlayBusy ? "Analizando partidos…" : legs.length < minGames ? (sameGame ? "Agrega al menos 1 partido" : "Agrega al menos 2 partidos") : "🎯 Armar parlay"}
               </button>
             </div>
 
@@ -485,7 +488,7 @@ export default function Home() {
                 parlays.length > 0 ? (
                   <ParlayView parlays={parlays} juegos={analyzedJuegos} advertencias={parlayData.advertencias} fuentes={parlayData.fuentes} />
                 ) : (
-                  <div className="muted">Se necesitan al menos 2 partidos analizados para armar un parlay.</div>
+                  <div className="muted">No hay combinaciones para ese rango. Prueba otro rango o dale “Armar parlay” otra vez para que la IA arme combinadas de ese tamaño.</div>
                 )
               )}
               {!parlayBusy && !parlayData && !parlayError && (

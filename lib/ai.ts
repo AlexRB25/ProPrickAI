@@ -1,6 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import type { Game } from "./espn";
-import type { GameOptions } from "./parlay";
+import { comboMaxSize, type GameOptions } from "./parlay";
 import { describeMarkets, type MarketSelection } from "./markets";
 import { pool, recentForm } from "./stats";
 
@@ -229,7 +229,7 @@ const PARLAY_SYSTEM = `Eres un analista de apuestas deportivas (NFL, fútbol soc
 Recibes una lista de partidos (cada uno con su id). Para CADA partido:
 1. Busca en la web datos ACTUALES: lesionados, forma reciente, estadísticas ofensivas y defensivas, local/visitante, descanso, clima si aplica, y los números de los jugadores clave (promedio de la temporada y de los últimos juegos, y qué permite el rival en esa estadística).
 2. "opciones": de 3 a 8 apuestas sueltas de distinto riesgo, SOLO de los "Mercados a considerar" de ese partido (cubre todos los que puedas con datos; di en advertencias cuáles no). Incluye la MÁS PROBABLE (favorito, doble oportunidad, hándicap o total alterno) y alguna con mejor pago. Para córners, tarjetas, faltas, tiros o goles de campo usa promedios a favor y en contra de cada equipo y, en tarjetas y faltas, el promedio del árbitro designado. Esos datos están en FootyStats, FBref, SoccerStats, WhoScored, Flashscore, TeamRankings o Pro Football Reference: búscalos y abre la página con web_fetch para leer la tabla. Reparte tus búsquedas entre todos los mercados.
-3. "combinadas": 1 o 2 combinaciones del MISMO partido (same game parlay) de 2 o 3 selecciones. Reglas:
+3. "combinadas": combinaciones del MISMO partido (same game parlay) con los tamaños que pida el mensaje ("Tamaños de combinadas"): al menos una combinada de CADA tamaño pedido, de la más probable a la de mejor pago. Si el mensaje dice que no hacen falta, deja "combinadas" vacío. Reglas:
    - Usa los mercados a considerar del partido. Cada selección de un mercado distinto. Nada redundante ni contradictorio: no juntes "X gana" con un hándicap de X, dos líneas del mismo total, ni dos props del mismo jugador y la misma estadística. Usa combinaciones que las casas sí aceptan, como "Cowboys ganan + Dak Prescott más de 224.5 yardas de pase" o "Más de 2.5 goles + Ambos anotan: Sí".
    - "probabilidad" es la probabilidad de que se cumplan TODAS juntas, considerando que están relacionadas. Si se ayudan entre sí (el equipo gana y su QB lanza mucho), la conjunta es MAYOR que multiplicarlas; si se estorban, es MENOR. No las multipliques sin más.
    - "cuota" es el momio americano aproximado que pagaría la casa por esa combinada.
@@ -266,12 +266,23 @@ Sé breve en el texto. Al final escribe EXACTAMENTE este formato entre <json> y 
 </json>
 "probabilidad" es un número de 0 a 100.`;
 
-export async function analyzeParlayGames(games: Game[], seleccion?: MarketSelection) {
+export async function analyzeParlayGames(
+  games: Game[],
+  seleccion?: MarketSelection,
+  opts: { sameGame?: boolean; maxLegs?: number } = {},
+) {
+  const sameGame = opts.sameGame !== false;
+  const comboMax = comboMaxSize(games.length, Math.min(20, Math.max(2, Number(opts.maxLegs) || 4)));
+  const sizes = Array.from({ length: comboMax - 1 }, (_, i) => i + 2).join(", ");
+  const comboLine = sameGame
+    ? `Tamaños de combinadas del mismo partido: ${sizes} selecciones (una o más de cada tamaño por partido).`
+    : "No hacen falta combinadas del mismo partido.";
   // Con muchos partidos, 3 juegos por equipo para no inflar el mensaje.
   const forms = await pool(games.map((g) => () => recentForm(g, games.length > 8 ? 3 : 5).catch(() => "")), 3);
   const today = new Date().toLocaleString("es-MX", { dateStyle: "full", timeStyle: "short", timeZone: "America/Mexico_City" });
   const text = [
     `Hoy es ${today} (hora del centro de México).`,
+    comboLine,
     ...games.map(
       (g, i) =>
         `### Partido ${i + 1} (id: ${g.id})\n${describeGame(g)}\nMercados a considerar: ${describeMarkets(g.sport, seleccion?.[g.sport]).text}.${forms[i] ? `\n${forms[i]}` : ""}`,

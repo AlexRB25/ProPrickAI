@@ -116,3 +116,5 @@ video.preview { width: 100%; border-radius: 10px; border: 1px solid var(--line);
 .top .tabs { flex-wrap: wrap; }
 @media (max-width: 560px) { .tabs { margin-left: 0; } }
 ul.sgp { margin: 4px 0; padding-left: 16px; list-style: "＋ "; }
+label.check { display: flex; align-items: flex-start; gap: 8px; cursor: pointer; }
+label.check input { margin-top: 3px; flex: none; }

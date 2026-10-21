@@ -52,6 +52,12 @@ export interface Parlay {
 
 export const MAX_APUESTAS = 20;
 
+// Tamaño máximo de las combinadas del mismo partido: con pocos partidos hacen falta combinadas
+// más grandes para llegar a la cantidad de apuestas pedida (con 1 partido, todo sale de ahí).
+export function comboMaxSize(nGames: number, maxLegs: number) {
+  return Math.max(3, Math.min(8, Math.ceil(maxLegs / Math.max(1, nGames))));
+}
+
 export function americanToDecimal(s: string): number | null {
   const m = s.replace(/,/g, "").match(/[+-]?\d+(\.\d+)?/);
   if (!m) return null;

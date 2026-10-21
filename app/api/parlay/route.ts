@@ -15,22 +15,26 @@ export async function POST(req: Request) {
   }
   let games: Game[];
   let mercados: MarketSelection | undefined;
+  let sameGame = true;
+  let maxLegs = 4;
   try {
     const body = await req.json();
     games = body.games;
     mercados = body.mercados;
+    sameGame = body.sameGame !== false;
+    maxLegs = Number(body.maxLegs) || 4;
   } catch {
     return NextResponse.json({ error: "Solicitud inválida" }, { status: 400 });
   }
-  if (!Array.isArray(games) || games.length < 2) {
-    return NextResponse.json({ error: "Agrega al menos 2 partidos al parlay." }, { status: 400 });
+  if (!Array.isArray(games) || games.length < 1 || (games.length < 2 && !sameGame)) {
+    return NextResponse.json({ error: "Agrega al menos 2 partidos, o 1 con apuestas del mismo partido activadas." }, { status: 400 });
   }
   if (games.length > MAX_PARLAY_GAMES) {
     return NextResponse.json({ error: `Máximo ${MAX_PARLAY_GAMES} partidos por análisis.` }, { status: 400 });
   }
 
   try {
-    return NextResponse.json(await analyzeParlayGames(games, mercados));
+    return NextResponse.json(await analyzeParlayGames(games, mercados, { sameGame, maxLegs }));
   } catch (e) {
     let msg = (e as Error).message;
     if (e instanceof Anthropic.AuthenticationError) msg = "La ANTHROPIC_API_KEY del servidor es inválida.";
