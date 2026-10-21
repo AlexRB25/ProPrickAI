@@ -161,3 +161,51 @@ export async function recentForm(game: Game, n = 5): Promise<string> {
     ? `Datos reales de los últimos partidos (box scores de ESPN; pueden incluir copa o pretemporada, fíjate en los minutos jugados):\n${text}`
     : "";
 }
+
+/**
+ * Resultado final oficial de un partido de ESPN para calificar picks: marcador, estadísticas de
+ * equipo y de cada jugador. final=false si todavía no termina; null si ESPN no tiene el partido.
+ */
+export async function finalReport(game: Game): Promise<{ final: boolean; text: string } | null> {
+  if (game.manual) return null;
+  const league = LEAGUES.find((l) => l.id === game.league);
+  if (!league) return null;
+  const s = await summary(league.path, game.id);
+  const comp = s?.header?.competitions?.[0];
+  if (!comp) return null;
+  const st = comp.status?.type ?? {};
+  if (!st.completed) return { final: false, text: st.description ?? "" };
+  if (/postponed|canceled|cancelled|suspended|abandoned/i.test(`${st.name} ${st.description}`)) {
+    return { final: true, text: `Partido ${st.description} (no se jugó o no terminó).` };
+  }
+
+  const lines: string[] = [];
+  const score = (comp.competitors ?? [])
+    .map((c: any) => `${c.team?.displayName ?? c.athlete?.displayName} ${c.score ?? "?"}${c.winner ? " (ganó)" : ""}`)
+    .join(" — ");
+  lines.push(`Final (${st.detail ?? st.description ?? ""}): ${score}`);
+  const periods = (comp.competitors ?? [])
+    .map((c: any) => (c.linescores?.length ? `${c.team?.abbreviation ?? c.team?.displayName}: ${c.linescores.map((l: any) => l.displayValue ?? l.value).join(" | ")}` : ""))
+    .filter(Boolean);
+  if (periods.length) lines.push(`Por periodo: ${periods.join(" · ")}`);
+
+  for (const t of s.boxscore?.teams ?? []) {
+    const stats = (t.statistics ?? []).map((x: any) => `${x.label ?? x.name} ${x.displayValue}`).join(", ");
+    if (stats) lines.push(`${t.team?.displayName} — ${stats}`);
+  }
+  for (const team of s.boxscore?.players ?? []) {
+    for (const cat of team.statistics ?? []) {
+      const rows = (cat.athletes ?? [])
+        .filter((a: any) => (a.stats ?? []).some((v: string) => v && v !== "0" && v !== "--"))
+        .map((a: any) => `${a.athlete?.displayName}: ${(cat.labels ?? []).map((l: string, i: number) => `${l} ${a.stats?.[i] ?? ""}`).join(" ")}`);
+      if (rows.length) lines.push(`${team.team?.displayName} · ${cat.name ?? cat.text ?? "jugadores"}\n  ${rows.join("\n  ")}`);
+    }
+  }
+  // Goles, tarjetas y cambios del soccer vienen como jugadas clave.
+  const plays = (s.keyEvents ?? s.plays ?? [])
+    .filter((p: any) => /goal|card|penalty|gol|tarjeta/i.test(p.type?.text ?? ""))
+    .map((p: any) => `${p.clock?.displayValue ?? ""} ${p.type?.text}: ${p.text ?? ""}`);
+  if (plays.length) lines.push(`Jugadas clave:\n  ${plays.slice(0, 40).join("\n  ")}`);
+
+  return { final: true, text: lines.join("\n").slice(0, 30000) };
+}

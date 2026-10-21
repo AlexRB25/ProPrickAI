@@ -3,7 +3,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { LEAGUES, leaguesOf, manualGame, SPORTS, sportInfo, type Game, type Sport } from "@/lib/espn";
-import type { Analysis } from "@/lib/ai";
+import type { Analysis, CacheInfo } from "@/lib/ai";
+import { authFetch, supabase } from "@/lib/supabase-browser";
+import { LoginModal, useSession } from "./Auth";
 import { buildParlays, comboMaxSize, MAX_APUESTAS, type GameOptions } from "@/lib/parlay";
 import { AnalysisView } from "./AnalysisView";
 import { ParlayView } from "./ParlayView";
@@ -30,20 +32,61 @@ const MAX_PARLAY_GAMES = 20;
 const TAMANOS = Array.from({ length: MAX_APUESTAS - 1 }, (_, i) => i + 2);
 
 interface ParlayData {
+  cache?: CacheInfo;
+  restantes?: number | null;
   juegos: GameOptions[];
   advertencias: string[];
   fuentes: { title: string; url: string }[];
 }
 
-async function requestAnalysis(body: { image?: string; game?: Game; question?: string; mercados?: MarketSelection }): Promise<Analysis> {
-  const res = await fetch("/api/analyze", {
+type AnalyzeBody = { image?: string; game?: Game; question?: string; mercados?: MarketSelection; refresh?: boolean };
+
+class HttpError extends Error {
+  constructor(message: string, public status: number) {
+    super(message);
+  }
+}
+
+async function requestAnalysis(body: AnalyzeBody): Promise<Analysis> {
+  const res = await authFetch("/api/analyze", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
   const data = await res.json().catch(() => ({ error: `Error ${res.status}` }));
-  if (!res.ok) throw new Error(data.error ?? `Error ${res.status}`);
+  if (!res.ok) throw new HttpError(data.error ?? `Error ${res.status}`, res.status);
   return data;
+}
+
+function hace(iso: string) {
+  const min = Math.max(0, Math.round((Date.now() - Date.parse(iso)) / 60000));
+  if (min < 1) return "hace un momento";
+  if (min < 60) return `hace ${min} min`;
+  const h = Math.round(min / 60);
+  return `hace ${h} h`;
+}
+
+function CacheBadge({ cache, restantes, onRefresh }: { cache?: CacheInfo; restantes?: number | null; onRefresh: () => void }) {
+  if (!cache) return null;
+  const parlay = cache.nuevos != null;
+  const text = parlay
+    ? cache.nuevos === 0
+      ? `⚡ Todo salió del caché compartido (analizado ${hace(cache.creado)})`
+      : cache.deCache
+        ? `⚡ ${cache.deCache} partido(s) del caché · 🆕 ${cache.nuevos} analizado(s) ahora`
+        : "🆕 Análisis nuevo"
+    : cache.hit
+      ? `⚡ Del caché compartido · analizado ${hace(cache.creado)}`
+      : "🆕 Análisis nuevo";
+  return (
+    <div className="row small muted" style={{ marginBottom: 10 }}>
+      <span>{text}</span>
+      {restantes !== undefined && <span>· {restantes === null ? "sin límite diario" : `te quedan ${restantes} análisis de IA hoy`}</span>}
+      {(cache.hit || (parlay && cache.deCache)) && (
+        <button className="link" style={{ marginLeft: "auto" }} onClick={onRefresh}>Actualizar análisis</button>
+      )}
+    </div>
+  );
 }
 
 // Captura un cuadro del video compartido. ImageCapture sigue funcionando aunque esta pestaña esté en segundo plano.
@@ -108,6 +151,9 @@ function Loading({ text }: { text: string }) {
 
 export default function Home() {
   const [tab, setTab] = useState<"partidos" | "parlay" | "pantalla">("partidos");
+  const { session, recovery, endRecovery } = useSession();
+  const [loginOpen, setLoginOpen] = useState(false);
+  const lastBody = useRef<AnalyzeBody | null>(null);
 
   // Parlay
   const [legs, setLegs] = useState<Game[]>([]);
@@ -179,16 +225,21 @@ export default function Home() {
     else setParlayError(`Máximo ${MAX_PARLAY_GAMES} partidos por parlay.`);
   }
 
-  async function armarParlay() {
+  async function armarParlay(refresh = false) {
+    if (!session) {
+      setLoginOpen(true);
+      return;
+    }
     setParlayBusy(true);
     setParlayError("");
     try {
-      const res = await fetch("/api/parlay", {
+      const res = await authFetch("/api/parlay", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ games: legs, mercados, sameGame, maxLegs }),
+        body: JSON.stringify({ games: legs, mercados, sameGame, maxLegs, refresh }),
       });
       const data = await res.json().catch(() => ({ error: `Error ${res.status}` }));
+      if (res.status === 401) setLoginOpen(true);
       if (!res.ok) throw new Error(data.error ?? `Error ${res.status}`);
       setParlayData(data);
     } catch (e) {
@@ -238,7 +289,12 @@ export default function Home() {
     if (videoRef.current) videoRef.current.srcObject = stream;
   }, [stream, tab]);
 
-  const run = useCallback(async (body: { image?: string; game?: Game; question?: string; mercados?: MarketSelection }) => {
+  const run = useCallback(async (body: AnalyzeBody) => {
+    if (!session) {
+      setLoginOpen(true);
+      return;
+    }
+    lastBody.current = { ...body, refresh: false };
     setBusy(true);
     setError("");
     try {
@@ -252,11 +308,12 @@ export default function Home() {
         return next;
       });
     } catch (e) {
+      if (e instanceof HttpError && e.status === 401) setLoginOpen(true);
       setError((e as Error).message);
     } finally {
       setBusy(false);
     }
-  }, []);
+  }, [session]);
 
   async function startShare() {
     setError("");
@@ -366,6 +423,12 @@ export default function Home() {
             Armar parlay{legs.length > 0 ? ` (${legs.length})` : ""}
           </button>
           <button className={`btn ${tab === "pantalla" ? "on" : ""}`} onClick={() => setTab("pantalla")}>Ventana flotante</button>
+          <a className="btn" href="/efectividad">📊 Efectividad</a>
+          {session ? (
+            <button className="btn" title={session.user.email ?? ""} onClick={() => supabase().auth.signOut()}>Salir</button>
+          ) : (
+            <button className="btn primary" onClick={() => setLoginOpen(true)}>Entrar</button>
+          )}
         </div>
       </div>
 
@@ -399,9 +462,9 @@ export default function Home() {
                     onChange={(e) => setMEvento(e.target.value)}
                     onKeyDown={(e) => e.key === "Enter" && addManual()}
                   />
-                  <div className="row" style={{ flexWrap: "nowrap" }}>
+                  <div className="row">
                     <input className="field" placeholder="Torneo o liga (opcional)" value={mTorneo} onChange={(e) => setMTorneo(e.target.value)} />
-                    <input className="field" type="datetime-local" style={{ width: "auto" }} value={mFecha} onChange={(e) => setMFecha(e.target.value)} />
+                    <input className="field" type="datetime-local" style={{ width: "auto", minWidth: 0, maxWidth: "100%" }} value={mFecha} onChange={(e) => setMFecha(e.target.value)} />
                   </div>
                   <input className="field" placeholder="Momios o líneas que viste (opcional)" value={mNotas} onChange={(e) => setMNotas(e.target.value)} />
                   <button className="btn primary" disabled={!mEvento.trim()} onClick={addManual}>
@@ -560,7 +623,7 @@ export default function Home() {
                     : `Con ${legs.length} partidos el parlay más grande será de ${legs.length}.`}
                 </div>
               )}
-              <button className="btn primary big" disabled={parlayBusy || legs.length < minGames} onClick={armarParlay}>
+              <button className="btn primary big" disabled={parlayBusy || legs.length < minGames} onClick={() => armarParlay()}>
                 {parlayBusy ? "Analizando partidos…" : legs.length < minGames ? (sameGame ? "Agrega al menos 1 partido" : "Agrega al menos 2 partidos") : "🎯 Armar parlay"}
               </button>
             </div>
@@ -575,7 +638,7 @@ export default function Home() {
               )}
               {!parlayBusy && parlayData && (
                 parlays.length > 0 ? (
-                  <ParlayView parlays={parlays} juegos={analyzedJuegos} advertencias={parlayData.advertencias} fuentes={parlayData.fuentes} />
+                  <><CacheBadge cache={parlayData.cache} restantes={parlayData.restantes} onRefresh={() => armarParlay(true)} /><ParlayView parlays={parlays} juegos={analyzedJuegos} advertencias={parlayData.advertencias} fuentes={parlayData.fuentes} /></>
                 ) : (
                   <div className="muted">No hay combinaciones para ese rango. Prueba otro rango o dale “Armar parlay” otra vez para que la IA arme combinadas de ese tamaño.</div>
                 )
@@ -620,7 +683,12 @@ export default function Home() {
           <div className="card">
             {busy && <Loading text="La IA está buscando lesiones, estadísticas y momios (1-2 min)…" />}
             {error && !busy && <div className="err small">{error}</div>}
-            {!busy && result && <AnalysisView a={result} />}
+            {!busy && result && (
+              <>
+                <CacheBadge cache={result.cache} restantes={result.restantes} onRefresh={() => lastBody.current && run({ ...lastBody.current, refresh: true })} />
+                <AnalysisView a={result} />
+              </>
+            )}
             {!busy && !result && !error && <div className="muted">Aquí aparecerá el pronóstico con su probabilidad y las razones.</div>}
           </div>
 
@@ -646,6 +714,14 @@ export default function Home() {
       </div>
 
       {pip && createPortal(floatPanel, pip.document.body)}
+      <LoginModal
+        open={loginOpen}
+        recovery={recovery}
+        onClose={() => {
+          setLoginOpen(false);
+          endRecovery();
+        }}
+      />
     </div>
   );
 }

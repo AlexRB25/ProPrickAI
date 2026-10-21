@@ -31,6 +31,16 @@ export interface Analysis {
   advertencias: string[];
   fuentes: { title: string; url: string }[];
   modelo: string;
+  // Lo agrega la ruta de API:
+  cache?: CacheInfo;
+  restantes?: number | null; // consultas de IA que le quedan hoy; null = sin límite
+}
+
+export interface CacheInfo {
+  hit: boolean; // true si salió del caché compartido
+  creado: string; // cuándo lo analizó la IA
+  nuevos?: number; // parlay: partidos analizados ahora
+  deCache?: number; // parlay: partidos que salieron del caché
 }
 
 export interface AnalyzeInput {
@@ -117,7 +127,7 @@ function searchBudget(ids: string[] | undefined) {
   return Math.min(18, 6 + extra * 2);
 }
 
-function extractJson<T>(text: string): T | null {
+export function extractJson<T>(text: string): T | null {
   const m = text.match(/<json>([\s\S]*?)<\/json>/) ?? text.match(/```json\s*([\s\S]*?)```/);
   if (!m) return null;
   try {
@@ -187,7 +197,12 @@ export async function analyze(input: AnalyzeInput): Promise<Analysis> {
   };
 }
 
-async function runClaude(system: string, content: Anthropic.Beta.BetaContentBlockParam[], maxSearches: number) {
+export async function runClaude(
+  system: string,
+  content: Anthropic.Beta.BetaContentBlockParam[],
+  maxSearches: number,
+  effort: Effort = EFFORT,
+) {
   const messages: Anthropic.Beta.BetaMessageParam[] = [{ role: "user", content }];
   let final: Anthropic.Beta.BetaMessage | null = null;
 
@@ -199,13 +214,16 @@ async function runClaude(system: string, content: Anthropic.Beta.BetaContentBloc
       betas: ["server-side-fallback-2026-07-01"],
       fallbacks: "default",
       thinking: { type: "adaptive" },
-      output_config: { effort: EFFORT },
+      output_config: { effort },
       system: [{ type: "text", text: system, cache_control: { type: "ephemeral" } }],
-      tools: [
-        { type: "web_search_20260209", name: "web_search", max_uses: maxSearches },
-        // Para leer tablas completas de estadísticas (córners, tarjetas, props) de las páginas encontradas.
-        { type: "web_fetch_20260209", name: "web_fetch", max_uses: Math.ceil(maxSearches / 2) },
-      ],
+      tools:
+        maxSearches > 0
+          ? [
+              { type: "web_search_20260209", name: "web_search", max_uses: maxSearches },
+              // Para leer tablas completas de estadísticas (córners, tarjetas, props) de las páginas encontradas.
+              { type: "web_fetch_20260209", name: "web_fetch", max_uses: Math.ceil(maxSearches / 2) },
+            ]
+          : undefined,
       messages,
     });
     final = await stream.finalMessage();
@@ -283,10 +301,10 @@ Sé breve en el texto. Al final escribe EXACTAMENTE este formato entre <json> y 
 export async function analyzeParlayGames(
   games: Game[],
   seleccion?: MarketSelection,
-  opts: { sameGame?: boolean; maxLegs?: number } = {},
+  opts: { sameGame?: boolean; maxLegs?: number; comboMax?: number } = {},
 ) {
   const sameGame = opts.sameGame !== false;
-  const comboMax = comboMaxSize(games.length, Math.min(20, Math.max(2, Number(opts.maxLegs) || 4)));
+  const comboMax = opts.comboMax || comboMaxSize(games.length, Math.min(20, Math.max(2, Number(opts.maxLegs) || 4)));
   const sizes = Array.from({ length: comboMax - 1 }, (_, i) => i + 2).join(", ");
   const comboLine = sameGame
     ? `Tamaños de combinadas del mismo partido: ${sizes} selecciones (una o más de cada tamaño por partido).`
