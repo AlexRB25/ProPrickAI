@@ -96,6 +96,12 @@ function gameLine(sport: Sport, box: any, teamId: string, ev: any): { line: stri
     };
   }
 
+  if (sport !== "basquet") {
+    // Otros deportes de equipo (béisbol, hockey, rugby…): las estadísticas que traiga ESPN.
+    const keys = Object.keys(mine).slice(0, 12);
+    return { nums, line: `${head}${keys.length ? ` · ${keys.map((k) => `${k} ${mine[k]}-${opp[k] ?? "?"}`).join(" · ")}` : ""}` };
+  }
+
   // básquet
   const leaders = playerRows(box, teamId)
     .filter((p: any) => p.v.MIN && p.v.MIN !== "0")
@@ -119,11 +125,13 @@ function averages(sport: Sport, rows: Record<string, number>[]) {
     const fgI = rows.reduce((n, r) => n + (r.fgIntentos ?? 0), 0);
     return `Promedios: puntos ${a("favor")}-${a("contra")}, yardas ${a("yardas")} (pase ${a("pase")}, carrera ${a("carrera")}), permitió pase ${a("paseRival")} y carrera ${a("carreraRival")}, sacks ${a("sacksHechos")}, goles de campo ${fgH}/${fgI} en total (${a("fgHechos")} por partido).`;
   }
+  if (sport !== "basquet") return `Promedios: marcador ${a("favor")}-${a("contra")}.`;
   return `Promedios: puntos ${a("favor")}-${a("contra")}, rebotes ${a("rebotes")}, asistencias ${a("asistencias")}, faltas ${a("faltas")}.`;
 }
 
 // Texto con los últimos `n` partidos de ambos equipos; vacío si ESPN no tiene datos.
 export async function recentForm(game: Game, n = 5): Promise<string> {
+  if (game.manual || game.kind !== "match") return "";
   const league = LEAGUES.find((l) => l.id === game.league);
   if (!league) return "";
   const sum = await summary(league.path, game.id);

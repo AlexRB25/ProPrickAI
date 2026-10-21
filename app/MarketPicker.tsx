@@ -1,11 +1,5 @@
-import type { Sport } from "@/lib/espn";
-import { DEFAULT_MARKETS, MARKETS, type MarketSelection } from "@/lib/markets";
-
-const SPORT_LABEL: Record<Sport, string> = {
-  americano: "🏈 Fútbol americano",
-  soccer: "⚽ Soccer",
-  basquet: "🏀 Básquetbol",
-};
+import { sportInfo, type Sport } from "@/lib/espn";
+import { defaultMarketsOf, marketsOf, type MarketSelection } from "@/lib/markets";
 
 export function MarketPicker({
   sports,
@@ -19,14 +13,14 @@ export function MarketPicker({
   return (
     <div className="stack" style={{ gap: 8 }}>
       {sports.map((sp) => {
-        const chosen = value[sp] ?? DEFAULT_MARKETS[sp];
+        const chosen = value[sp] ?? defaultMarketsOf(sp);
         const set = (ids: string[]) => onChange({ ...value, [sp]: ids });
-        const all = MARKETS[sp].map((m) => m.id);
+        const all = marketsOf(sp).map((m) => m.id);
         return (
           <div key={sp}>
-            {sports.length > 1 && <div className="small muted" style={{ marginBottom: 4 }}>{SPORT_LABEL[sp]}</div>}
+            {sports.length > 1 && <div className="small muted" style={{ marginBottom: 4 }}>{sportInfo(sp).emoji} {sportInfo(sp).label}</div>}
             <div className="row" style={{ gap: 6 }}>
-              {MARKETS[sp].map((m) => {
+              {marketsOf(sp).map((m) => {
                 const on = chosen.includes(m.id);
                 return (
                   <button
@@ -40,7 +34,7 @@ export function MarketPicker({
                   </button>
                 );
               })}
-              <button className="mini" style={{ marginTop: 0, borderColor: "var(--line)", color: "var(--muted)" }} onClick={() => set(chosen.length === all.length ? DEFAULT_MARKETS[sp] : all)}>
+              <button className="mini" style={{ marginTop: 0, borderColor: "var(--line)", color: "var(--muted)" }} onClick={() => set(chosen.length === all.length ? defaultMarketsOf(sp) : all)}>
                 {chosen.length === all.length ? "Básicos" : "Todos"}
               </button>
             </div>

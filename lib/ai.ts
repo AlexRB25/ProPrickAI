@@ -1,5 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
-import type { Game } from "./espn";
+import { sportInfo, type Game } from "./espn";
 import { comboMaxSize, type GameOptions } from "./parlay";
 import { describeMarkets, type MarketSelection } from "./markets";
 import { pool, recentForm } from "./stats";
@@ -41,7 +41,7 @@ export interface AnalyzeInput {
 }
 
 // Fijo para que se pueda cachear; lo variable (fecha, partido, captura) va en el mensaje.
-const SYSTEM = `Eres un analista de apuestas deportivas (NFL, fútbol soccer y básquetbol) que da pronósticos en español de México.
+const SYSTEM = `Eres un analista de apuestas de cualquier deporte o evento (fútbol, NFL, béisbol, básquet, tenis, hockey, UFC, box, automovilismo, golf, rugby, eSports, caballos, política, etc.) que da pronósticos en español de México.
 
 Cómo trabajas:
 1. Identifica qué se te pide: un partido (ganador, hándicap, total de puntos/goles) o el desempeño de un jugador (yardas, puntos, rebotes, goles, tiros, etc.). Si recibes una captura de pantalla de una casa de apuestas o quiniela, lee los partidos, mercados, líneas y momios que se vean y analiza esos. Si hay muchos, elige los 6 más claros; en una quiniela da un pronóstico por partido. Si te dan una lista de mercados, da un pick por cada mercado de la lista donde encuentres datos suficientes (hasta 10 picks) y di en advertencias cuáles no pudiste analizar.
@@ -80,10 +80,24 @@ Al terminar, escribe un resumen breve y luego el resultado EXACTAMENTE en este f
 "probabilidad" y "probabilidad_implicita" son números de 0 a 100 (null si no hay momio).`;
 
 function describeGame(g: Game) {
-  const lines = [
-    `Partido: ${g.away.name} (visitante, récord ${g.away.record || "?"}${g.away.form ? `, forma ${g.away.form}` : ""}) en ${g.home.name} (local, récord ${g.home.record || "?"}${g.home.form ? `, forma ${g.home.form}` : ""})`,
-    `Liga: ${g.leagueName}. Fecha: ${g.date}. Estadio: ${g.venue || "?"}.`,
-  ];
+  const sport = sportInfo(g.sport).label;
+  const clip = (t: string, n: number) => String(t ?? "").slice(0, n);
+  const lines: string[] = [];
+  if (g.kind === "field") {
+    lines.push(`Evento (${sport}): ${clip(g.title, 200)}`);
+    if (g.field?.length) lines.push(`Participantes (orden de ESPN): ${g.field.slice(0, 40).join(", ")}.`);
+  } else if (g.manual || !g.home.record) {
+    lines.push(`Enfrentamiento (${sport}): ${clip(g.away.name, 100)} vs ${clip(g.home.name, 100)}${g.home.record ? ` (${g.away.record || "?"} / ${g.home.record})` : ""}`);
+  } else {
+    lines.push(
+      `Partido (${sport}): ${g.away.name} (visitante, récord ${g.away.record || "?"}${g.away.form ? `, forma ${g.away.form}` : ""}) en ${g.home.name} (local, récord ${g.home.record || "?"}${g.home.form ? `, forma ${g.home.form}` : ""})`,
+    );
+  }
+  lines.push(`Competencia: ${clip(g.leagueName, 150)}. Fecha: ${g.date}.${g.venue ? ` Sede: ${clip(g.venue, 100)}.` : ""}${g.status ? ` ${clip(g.status, 100)}.` : ""}`);
+  if (g.manual) {
+    lines.push("Evento escrito por el usuario: no hay datos de ESPN, búscalo todo en la web (confirma fecha, participantes y momios).");
+    if (g.notes) lines.push(`Notas del usuario: ${clip(g.notes, 500)}`);
+  }
   const o = g.odds;
   const odds = [
     o.details && `línea ${o.details}`,
@@ -143,7 +157,7 @@ export async function analyze(input: AnalyzeInput): Promise<Analysis> {
   const parsed = extractJson<Omit<Analysis, "fuentes" | "modelo">>(text);
   if (!parsed) {
     return {
-      titulo: input.game ? `${input.game.away.name} vs ${input.game.home.name}` : "Análisis",
+      titulo: input.game?.title ?? "Análisis",
       resumen: text.replace(/<json>[\s\S]*$/, "").trim() || "La IA no devolvió un resultado legible. Intenta de nuevo.",
       picks: [],
       datos_clave: [],
@@ -224,7 +238,7 @@ async function runClaude(system: string, content: Anthropic.Beta.BetaContentBloc
 
 // ---------- Parlay ----------
 
-const PARLAY_SYSTEM = `Eres un analista de apuestas deportivas (NFL, fútbol soccer y básquetbol) que ayuda a armar parlays, en español de México.
+const PARLAY_SYSTEM = `Eres un analista de apuestas de cualquier deporte o evento que ayuda a armar parlays, en español de México.
 
 Recibes una lista de partidos (cada uno con su id). Para CADA partido:
 1. Busca en la web datos ACTUALES: lesionados, forma reciente, estadísticas ofensivas y defensivas, local/visitante, descanso, clima si aplica, y los números de los jugadores clave (promedio de la temporada y de los últimos juegos, y qué permite el rival en esa estadística).

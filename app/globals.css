@@ -118,3 +118,13 @@ video.preview { width: 100%; border-radius: 10px; border: 1px solid var(--line);
 ul.sgp { margin: 4px 0; padding-left: 16px; list-style: "＋ "; }
 label.check { display: flex; align-items: flex-start; gap: 8px; cursor: pointer; }
 label.check input { margin-top: 3px; flex: none; }
+
+/* Deportes */
+.sports { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 6px; margin-bottom: 10px; max-height: 210px; overflow: auto; padding-right: 4px; }
+.sport {
+  display: flex; align-items: center; gap: 6px; text-align: left; font-size: 13px;
+  border: 1px solid var(--line); background: var(--panel-2); color: var(--text); border-radius: 8px; padding: 6px 8px;
+}
+.sport span { font-size: 16px; }
+.sport:hover { border-color: var(--muted); }
+.sport.on { background: var(--accent); border-color: var(--accent); color: #04120a; font-weight: 700; }

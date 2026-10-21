@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { LEAGUES, type Game, type Sport } from "@/lib/espn";
+import { LEAGUES, leaguesOf, manualGame, SPORTS, sportInfo, type Game, type Sport } from "@/lib/espn";
 import type { Analysis } from "@/lib/ai";
 import { buildParlays, comboMaxSize, MAX_APUESTAS, type GameOptions } from "@/lib/parlay";
 import { AnalysisView } from "./AnalysisView";
@@ -18,15 +18,14 @@ declare global {
   }
 }
 
-const SPORTS: { id: Sport; label: string }[] = [
-  { id: "americano", label: "🏈 Fútbol americano" },
-  { id: "soccer", label: "⚽ Fútbol soccer" },
-  { id: "basquet", label: "🏀 Básquetbol" },
-];
 
 const HISTORY_KEY = "pronosticos-historial";
 const PARLAY_KEY = "pronosticos-parlay";
 const MARKETS_KEY = "pronosticos-mercados";
+const MANUAL_KEY = "pronosticos-eventos";
+
+// Boletos guardados por versiones anteriores no traen title/kind.
+const normalize = (g: Game): Game => ({ ...g, kind: g.kind ?? "match", title: g.title ?? `${g.away.name} vs ${g.home.name}` });
 const MAX_PARLAY_GAMES = 20;
 const TAMANOS = Array.from({ length: MAX_APUESTAS - 1 }, (_, i) => i + 2);
 
@@ -122,7 +121,12 @@ export default function Home() {
   const [parlayError, setParlayError] = useState("");
 
   // Partidos
-  const [sport, setSport] = useState<Sport>("americano");
+  const [sport, setSport] = useState<Sport>("soccer");
+  const [manualEvents, setManualEvents] = useState<Game[]>([]);
+  const [mEvento, setMEvento] = useState("");
+  const [mTorneo, setMTorneo] = useState("");
+  const [mFecha, setMFecha] = useState("");
+  const [mNotas, setMNotas] = useState("");
   const [league, setLeague] = useState("nfl");
   const [games, setGames] = useState<Game[]>([]);
   const [gamesLoading, setGamesLoading] = useState(false);
@@ -149,7 +153,9 @@ export default function Home() {
       const savedMarkets = localStorage.getItem(MARKETS_KEY);
       if (savedMarkets) setMercados({ ...DEFAULT_MARKETS, ...JSON.parse(savedMarkets) });
       const savedLegs = localStorage.getItem(PARLAY_KEY);
-      if (savedLegs) setLegs(JSON.parse(savedLegs));
+      if (savedLegs) setLegs((JSON.parse(savedLegs) as Game[]).map(normalize));
+      const savedManual = localStorage.getItem(MANUAL_KEY);
+      if (savedManual) setManualEvents(JSON.parse(savedManual));
     } catch {}
   }, []);
 
@@ -200,11 +206,17 @@ export default function Home() {
 
   useEffect(() => {
     const l = LEAGUES.find((x) => x.id === league);
-    if (l?.sport !== sport) setLeague(LEAGUES.find((x) => x.sport === sport)!.id);
+    if (l?.sport !== sport) setLeague(leaguesOf(sport)[0]?.id ?? "");
   }, [sport, league]);
 
   useEffect(() => {
     let cancel = false;
+    if (!league) {
+      setGames([]);
+      setGamesError("");
+      setGamesLoading(false);
+      return;
+    }
     setGamesLoading(true);
     setGamesError("");
     setSelected(null);
@@ -318,7 +330,31 @@ export default function Home() {
     </div>
   );
 
-  const leagues = LEAGUES.filter((l) => l.sport === sport);
+  const leagues = leaguesOf(sport);
+  const shownGames = [...manualEvents.filter((g) => g.sport === sport), ...games];
+
+  function saveManual(next: Game[]) {
+    setManualEvents(next);
+    try {
+      localStorage.setItem(MANUAL_KEY, JSON.stringify(next));
+    } catch {}
+  }
+
+  function addManual() {
+    if (!mEvento.trim()) return;
+    const g = manualGame(sport, mEvento.slice(0, 200), mTorneo.slice(0, 150), mFecha, mNotas);
+    saveManual([g, ...manualEvents].slice(0, 50));
+    setMEvento("");
+    setMNotas("");
+    if (tab === "parlay") toggleLeg(g);
+    else setSelected(g);
+  }
+
+  function removeManual(g: Game) {
+    saveManual(manualEvents.filter((x) => x.id !== g.id));
+    if (legIds.has(g.id)) toggleLeg(g);
+    if (selected?.id === g.id) setSelected(null);
+  }
 
   return (
     <div className="wrap">
@@ -337,18 +373,46 @@ export default function Home() {
         {tab !== "pantalla" ? (
           <div className="stack">
             <div className="card">
-              <div className="chips">
+              <div className="sports">
                 {SPORTS.map((s) => (
-                  <button key={s.id} className={`btn ${sport === s.id ? "on" : ""}`} onClick={() => setSport(s.id)}>{s.label}</button>
+                  <button key={s.id} className={`sport ${sport === s.id ? "on" : ""}`} onClick={() => setSport(s.id)}>
+                    <span>{s.emoji}</span> {s.label}
+                  </button>
                 ))}
               </div>
-              <select className="field" value={league} onChange={(e) => setLeague(e.target.value)}>
-                {leagues.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
-              </select>
+              {leagues.length > 0 ? (
+                <select className="field" value={league} onChange={(e) => setLeague(e.target.value)}>
+                  {leagues.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
+                </select>
+              ) : (
+                <div className="small muted">
+                  No hay calendario automático de {sportInfo(sport).label}. Escribe el evento abajo y la IA lo investiga en la web.
+                </div>
+              )}
+              <details open={leagues.length === 0} style={{ marginTop: 10 }}>
+                <summary className="small muted" style={{ cursor: "pointer" }}>+ Agregar evento manual</summary>
+                <div className="stack" style={{ marginTop: 8, gap: 8 }}>
+                  <input
+                    className="field"
+                    placeholder={sport === "box" ? "Ej. Canelo Álvarez vs Terence Crawford" : sport === "caballos" || sport === "motor" || sport === "golf" ? "Ej. Kentucky Derby (o nombre de la carrera/torneo)" : sport === "politica" ? "Ej. Elección presidencial de Brasil 2026" : "Ej. Equipo A vs Equipo B"}
+                    value={mEvento}
+                    onChange={(e) => setMEvento(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && addManual()}
+                  />
+                  <div className="row" style={{ flexWrap: "nowrap" }}>
+                    <input className="field" placeholder="Torneo o liga (opcional)" value={mTorneo} onChange={(e) => setMTorneo(e.target.value)} />
+                    <input className="field" type="datetime-local" style={{ width: "auto" }} value={mFecha} onChange={(e) => setMFecha(e.target.value)} />
+                  </div>
+                  <input className="field" placeholder="Momios o líneas que viste (opcional)" value={mNotas} onChange={(e) => setMNotas(e.target.value)} />
+                  <button className="btn primary" disabled={!mEvento.trim()} onClick={addManual}>
+                    {tab === "parlay" ? "Agregar al boleto" : "Agregar y analizar"}
+                  </button>
+                </div>
+              </details>
             </div>
 
             <div className="card">
-              <h2>Próximos partidos</h2>
+              <h2>Próximos eventos</h2>
               {tab === "parlay" && (
                 <div className="small muted" style={{ marginBottom: 8 }}>
                   Toca un partido para agregarlo al boleto. Puedes cambiar de deporte y liga y seguir agregando.
@@ -356,9 +420,9 @@ export default function Home() {
               )}
               {gamesLoading && <Loading text="Cargando partidos…" />}
               {gamesError && <div className="err small">{gamesError}</div>}
-              {!gamesLoading && !gamesError && games.length === 0 && <div className="muted">No hay partidos en los próximos 7 días.</div>}
+              {!gamesLoading && !gamesError && shownGames.length === 0 && <div className="muted">{league ? "No hay eventos en los próximos 7 días." : "Agrega un evento arriba para analizarlo."}</div>}
               <div className="games">
-                {games.map((g) => {
+                {shownGames.map((g) => {
                   const inParlay = legIds.has(g.id);
                   const isSel = tab === "parlay" ? inParlay : selected?.id === g.id;
                   return (
@@ -370,10 +434,22 @@ export default function Home() {
                       onClick={() => (tab === "parlay" ? toggleLeg(g) : setSelected(g))}
                       onKeyDown={(e) => e.key === "Enter" && (tab === "parlay" ? toggleLeg(g) : setSelected(g))}
                     >
-                      <div className="stack" style={{ gap: 4 }}>
-                        <div className="team">{g.away.logo && <img src={g.away.logo} alt="" />}<b>{g.away.name}</b><span className="small muted">{g.away.record}</span></div>
-                        <div className="team">{g.home.logo && <img src={g.home.logo} alt="" />}<b>{g.home.name}</b><span className="small muted">{g.home.record}</span></div>
-                      </div>
+                      {g.kind === "field" ? (
+                        <div className="stack" style={{ gap: 4, minWidth: 0 }}>
+                          <div className="team"><b>{g.title}</b></div>
+                          <div className="small muted">
+                            {g.manual ? `${g.leagueName} · evento manual` : `${g.leagueName} · ${g.field?.length ? `${g.field.length} participantes` : "participantes por confirmar"}`}
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="stack" style={{ gap: 4, minWidth: 0 }}>
+                          <div className="team">{g.away.logo && <img src={g.away.logo} alt="" />}<b>{g.away.name}</b><span className="small muted">{g.away.record}</span></div>
+                          <div className="team">{g.home.logo && <img src={g.home.logo} alt="" />}<b>{g.home.name}</b><span className="small muted">{g.home.record}</span></div>
+                          {(g.manual || g.leagueName.includes("·")) && (
+                            <div className="small muted">{g.manual ? `${g.leagueName} · evento manual` : g.leagueName.split(" · ").slice(1).join(" · ")}{g.status && !g.manual ? ` · ${g.status}` : ""}</div>
+                          )}
+                        </div>
+                      )}
                       <div className="odds">
                         <div>{g.state === "pre" ? fmtDate(g.date) : `${g.status} ${g.score}`}</div>
                         {g.odds.details && <div>{g.odds.details}</div>}
@@ -387,6 +463,19 @@ export default function Home() {
                             }}
                           >
                             {inParlay ? "✓ En parlay" : "+ Parlay"}
+                          </button>
+                        )}
+                        {g.manual && (
+                          <button
+                            className="x"
+                            style={{ marginTop: 6, width: 24, height: 24, fontSize: 14 }}
+                            aria-label="Borrar evento"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              removeManual(g);
+                            }}
+                          >
+                            ×
                           </button>
                         )}
                       </div>
@@ -434,7 +523,7 @@ export default function Home() {
                 <div key={l.id} className="leg">
                   <div style={{ minWidth: 0 }}>
                     <div className="small muted">{l.leagueName} · {fmtDate(l.date)}</div>
-                    <b>{l.away.name} vs {l.home.name}</b>
+                    <b>{sportInfo(l.sport).emoji} {l.title}</b>
                   </div>
                   <button className="x" aria-label="Quitar" onClick={() => toggleLeg(l)}>×</button>
                 </div>
@@ -500,7 +589,7 @@ export default function Home() {
         <div className="stack">
           {tab === "partidos" && (
             <div className="card stack">
-              <h2>{selected ? `${selected.away.name} vs ${selected.home.name}` : "Pregunta a la IA"}</h2>
+              <h2>{selected ? selected.title : "Pregunta a la IA"}</h2>
               <textarea
                 className="field"
                 placeholder={selected

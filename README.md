@@ -1,6 +1,6 @@
 # Pronósticos IA
 
-Web app de pronósticos deportivos (NFL / NCAA, fútbol soccer, NBA / WNBA / NCAA) con IA.
+Web app de pronósticos con IA para más de 30 deportes y eventos. Con calendario automático de ESPN: fútbol (20 ligas), NFL/NCAA/CFL/UFL, MLB, NBA/WNBA/NCAA/FIBA, tenis ATP/WTA, NHL, UFC/PFL, F1/NASCAR/IndyCar, golf PGA/LPGA, rugby, NRL, AFL, voleibol, lacrosse y hockey sobre césped. El resto (box, eSports, snooker, dardos, caballos, galgos, ciclismo, política, etc.) se agrega como evento manual y la IA lo investiga en la web.
 
 - **Partidos**: elige deporte y liga, ve los próximos partidos con momios (ESPN, sin llave) y pide el pronóstico. Puedes preguntar algo específico: "¿Dak Prescott pasa de 250.5 yardas?".
 - **Ventana flotante**: comparte la pestaña de tu casa de apuestas o quiniela, abre la ventana flotante (queda encima de todo) y pulsa **Analizar**. La IA lee la captura, busca lesiones y estadísticas actuales en la web y te da probabilidad, valor contra el momio y razones.
