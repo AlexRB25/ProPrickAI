@@ -1,7 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { sportInfo, type Game } from "./espn";
 import { comboMaxSize, type GameOptions } from "./parlay";
-import { describeMarkets, type MarketSelection } from "./markets";
+import { BASIC_MARKETS, describeMarkets, type MarketSelection } from "./markets";
 import { pool, recentForm } from "./stats";
 
 const client = new Anthropic();
@@ -33,7 +33,8 @@ export interface Analysis {
   modelo: string;
   // Lo agrega la ruta de API:
   cache?: CacheInfo;
-  restantes?: number | null; // consultas de IA que le quedan hoy; null = sin límite
+  restantes?: number | null; // créditos que le quedan; null = sin límite (admin)
+  costo_usd?: number; // costo real de la IA (solo servidor, no se manda al cliente)
 }
 
 export interface CacheInfo {
@@ -121,7 +122,7 @@ function describeGame(g: Game) {
 }
 
 // Los mercados de estadísticas (córners, tarjetas, props…) piden búsquedas propias.
-const BASICOS = new Set(["ganador", "handicap", "total", "resultado", "doble", "goles", "ambos"]);
+const BASICOS = BASIC_MARKETS;
 function searchBudget(ids: string[] | undefined) {
   const extra = (ids ?? []).filter((id) => !BASICOS.has(id)).length;
   return Math.min(18, 6 + extra * 2);
@@ -162,7 +163,7 @@ export async function analyze(input: AnalyzeInput): Promise<Analysis> {
   }
   content.push({ type: "text", text: parts.join("\n\n") });
 
-  const { text, fuentes, model } = await runClaude(SYSTEM, content, searchBudget(mercados?.ids));
+  const { text, fuentes, model, costo } = await runClaude(SYSTEM, content, searchBudget(mercados?.ids));
 
   const parsed = extractJson<Omit<Analysis, "fuentes" | "modelo">>(text);
   if (!parsed) {
@@ -174,6 +175,7 @@ export async function analyze(input: AnalyzeInput): Promise<Analysis> {
       advertencias: ["No se pudo leer el formato del resultado."],
       fuentes,
       modelo: model,
+      costo_usd: costo,
     };
   }
 
@@ -194,7 +196,27 @@ export async function analyze(input: AnalyzeInput): Promise<Analysis> {
     advertencias: parsed.advertencias ?? [],
     fuentes: fuentes.slice(0, 12),
     modelo: model,
+    costo_usd: costo,
   };
+}
+
+// Precios por millón de tokens (USD). Si respondió un modelo de respaldo, se cobra con su tarifa.
+const RATES: Record<string, { input: number; output: number }> = {
+  "claude-opus-5-5": { input: 4, output: 20 },
+  "claude-opus-4-8": { input: 5, output: 25 },
+};
+const WEB_SEARCH_USD = 10 / 1000;
+
+/** Costo en dólares de una respuesta de la API (tokens + búsquedas web). */
+function costOf(m: Anthropic.Beta.BetaMessage): number {
+  const r = RATES[m.model] ?? { input: 5, output: 25 }; // desconocido: tarifa alta para no subestimar
+  const u = m.usage;
+  const tokens =
+    u.input_tokens * r.input +
+    (u.cache_creation_input_tokens ?? 0) * r.input * 1.25 +
+    (u.cache_read_input_tokens ?? 0) * r.input * 0.1 +
+    u.output_tokens * r.output;
+  return tokens / 1e6 + (u.server_tool_use?.web_search_requests ?? 0) * WEB_SEARCH_USD;
 }
 
 export async function runClaude(
@@ -205,6 +227,7 @@ export async function runClaude(
 ) {
   const messages: Anthropic.Beta.BetaMessageParam[] = [{ role: "user", content }];
   let final: Anthropic.Beta.BetaMessage | null = null;
+  let costo = 0;
 
   // pause_turn: la búsqueda web llegó a su límite de iteraciones; se reanuda con el turno parcial.
   for (let i = 0; i < 4; i++) {
@@ -227,6 +250,7 @@ export async function runClaude(
       messages,
     });
     final = await stream.finalMessage();
+    costo += costOf(final);
     if (final.stop_reason !== "pause_turn") break;
     messages.push({ role: "assistant", content: final.content });
   }
@@ -251,7 +275,7 @@ export async function runClaude(
   }
   // Primero lo que la IA citó; si no citó nada, las páginas que encontró al buscar.
   const lista = fuentes.size ? fuentes : consultadas;
-  return { text, fuentes: [...lista].map(([url, title]) => ({ url, title })), model: final.model };
+  return { text, fuentes: [...lista].map(([url, title]) => ({ url, title })), model: final.model, costo };
 }
 
 // ---------- Parlay ----------
@@ -347,5 +371,5 @@ export async function analyzeParlayGames(
         razon: String(c.razon ?? ""),
       })),
   }));
-  return { juegos, advertencias: parsed.advertencias ?? [], fuentes: res.fuentes.slice(0, 15), modelo: res.model };
+  return { juegos, advertencias: parsed.advertencias ?? [], fuentes: res.fuentes.slice(0, 15), modelo: res.model, costo_usd: res.costo };
 }

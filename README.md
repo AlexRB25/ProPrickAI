@@ -8,7 +8,9 @@ Web app de pronósticos con IA para más de 30 deportes y eventos. Con calendari
 - **Mercados a elegir**: en el análisis de un partido y en el parlay escoges qué mercados considerar: córners, tarjetas, faltas, tiros, goleador, goles de campo, yardas, props de NBA, etc.
 - **Datos reales**: antes de llamar a la IA se bajan los box scores de los últimos 5 partidos de cada equipo desde ESPN (córners, faltas, tarjetas, goles de campo, yardas y números de jugadores) y se le pasan como datos verificados.
 - **Caché compartido**: cada análisis se guarda en Supabase y se reutiliza para cualquier usuario mientras siga vigente (12 h si faltan más de 2 días, 3 h si faltan más de 6 h, 45 min cerca del partido). En parlays se guarda por partido.
-- **Inicio de sesión** con Supabase Auth y límite diario de análisis de IA por usuario (`DAILY_AI_LIMIT`, lo que sale del caché no cuenta; los admins no tienen límite).
+- **Suscripción y créditos** (Mercado Pago): plan mensual (US$9.99, 60 créditos) o anual (US$99.99, 720 créditos) y paquetes de créditos para suscriptores. Cada consulta cobra créditos según la tabla `tarifas` (menos si sale del caché); si la IA falla se devuelven. Todo editable en `/admin`.
+- **Panel de administración** (`/admin`): resumen del negocio (ingresos, costo real de la IA, ganancia, margen por crédito), usuarios con historial de consultas, pagos y créditos; agregar o quitar créditos, regalar o quitar suscripciones, bloquear; historial global de consultas; reportes de fallas; precios.
+- **Reportar falla**: botón fijo en todas las páginas.
 - **Efectividad** (pública, en `/efectividad`): cada pick se guarda una vez y se califica solo cuando acaba el partido (ESPN + IA, o búsqueda web en eventos sin ESPN). Muestra acierto contra lo esperado, ROI, calibración, por deporte y por mercado, con filtros por deporte, liga y estado.
 
 ## Arranque
@@ -31,10 +33,19 @@ Las probabilidades parten del momio de la casa (sin margen) y solo se mueven con
 2. SQL Editor → pega `supabase/schema.sql` completo → Run.
 3. Authentication → URL Configuration: pon tu dominio de Vercel en *Site URL* y en *Redirect URLs* (y `http://localhost:3000` para pruebas).
 4. Project Settings → API: copia la URL, la *publishable key* y la *secret key* a las variables de entorno.
-5. Regístrate en la app y hazte admin: `update public.profiles set is_admin = true where email = tu@correo.com;`
+5. Regístrate en la app y hazte admin (las consultas de los admins no cobran créditos): `update public.profiles set is_admin = true where email = tu@correo.com;`
+
+## Mercado Pago
+
+1. En Mercado Pago → Tus integraciones, crea una aplicación y copia el *Access Token* de producción a `MP_ACCESS_TOKEN`.
+2. Webhooks: URL `https://TU-DOMINIO/api/mercadopago/webhook`, eventos **Pagos**, **Planes y suscripciones** (suscripciones y pagos autorizados). Copia la clave secreta a `MP_WEBHOOK_SECRET`.
+3. `MP_USD_RATE` = pesos por dólar con los que se cobra (los precios están en US$).
+4. Para probar sin dinero real usa las credenciales y usuarios de prueba de Mercado Pago.
+
+Las suscripciones dan sus créditos en cada cobro aprobado (una vez por cobro). Los paquetes se acreditan cuando el pago queda aprobado (al volver a /planes o por el webhook).
 
 ## Deploy en Vercel
 
-Agrega en Settings → Environment Variables todas las de `.env.example` (`ANTHROPIC_API_KEY`, `PB_SUPABASE_URL`, `PB_SUPABASE_PUBLISHABLE_KEY`, `SUPABASE_SECRET_KEY`, `CRON_SECRET`, opcionales `AI_EFFORT` y `DAILY_AI_LIMIT`). Los análisis tienen tope de 300 s por solicitud.
+Agrega en Settings → Environment Variables todas las de `.env.example`. Los análisis tienen tope de 300 s por solicitud.
 
 La calificación corre con Vercel Cron una vez al día (límite del plan Hobby; ver `vercel.json`). Para calificar más seguido, un admin puede usar "Calificar ahora" en Efectividad, o un cron externo (p. ej. cron-job.org) puede llamar cada hora `GET /api/cron/calificar` con el encabezado `Authorization: Bearer <CRON_SECRET>`.

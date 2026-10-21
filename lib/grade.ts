@@ -1,6 +1,7 @@
 // Califica los picks pendientes cuando ya terminó el partido.
 // Con resultado de ESPN, la IA solo compara (sin búsqueda); sin él (evento manual, torneo, pelea), busca el resultado.
 import { extractJson, runClaude } from "./ai";
+import { logConsulta } from "./billing";
 import type { Game } from "./espn";
 import { db } from "./server";
 import { finalReport } from "./stats";
@@ -90,7 +91,8 @@ async function gradeGame(picks: PickRow[]): Promise<number> {
   }
 
   const espn = report?.final ? report.text : null;
-  const byId = await askGrader(game, picks, espn);
+  const { byId, costo } = await askGrader(game, picks, espn);
+  await logConsulta({ userId: null, tipo: "calificacion", titulo: game.title, creditos: 0, costo });
   const by = espn ? "espn" : "web";
 
   let graded = 0;
@@ -138,5 +140,5 @@ export async function askGrader(
   ].join("\n\n");
   const res = await runClaude(GRADER, [{ type: "text", text }], espnReport ? 0 : 5, "low");
   const parsed = extractJson<{ calificaciones?: { id: string; estado: Estado; motivo?: string }[] }>(res.text);
-  return new Map((parsed?.calificaciones ?? []).map((c) => [String(c.id), c]));
+  return { byId: new Map((parsed?.calificaciones ?? []).map((c) => [String(c.id), c])), costo: res.costo };
 }

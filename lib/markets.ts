@@ -108,3 +108,9 @@ export function describeMarkets(sport: Sport, ids: string[] | undefined): { text
   if (chosen.length === 0) chosen = all.filter((m) => defaultMarketsOf(sport).includes(m.id));
   return { text: chosen.map((m) => `${m.label} (${m.hint})`).join("; "), count: chosen.length, ids: chosen.map((m) => m.id) };
 }
+
+// Mercados que no piden búsquedas propias; el resto (córners, props…) encarece el análisis.
+export const BASIC_MARKETS = new Set(["ganador", "handicap", "total", "resultado", "doble", "goles", "ambos"]);
+
+/** Análisis extendido: más de 3 mercados de estadísticas (cuesta créditos extra). */
+export const isExtended = (ids: string[]) => ids.filter((id) => !BASIC_MARKETS.has(id)).length > 3;

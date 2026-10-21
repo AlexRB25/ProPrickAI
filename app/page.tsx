@@ -6,6 +6,23 @@ import { LEAGUES, leaguesOf, manualGame, SPORTS, sportInfo, type Game, type Spor
 import type { Analysis, CacheInfo } from "@/lib/ai";
 import { authFetch, supabase } from "@/lib/supabase-browser";
 import { LoginModal, useSession } from "./Auth";
+import { useAccount } from "./useAccount";
+
+// Error con enlace a Planes cuando falta suscripción o créditos.
+function PayError({ text }: { text: string }) {
+  const pago = /suscripci|créditos/i.test(text);
+  return (
+    <div className="err small">
+      {text}
+      {pago && (
+        <>
+          {" "}
+          <a href="/planes">Ver planes →</a>
+        </>
+      )}
+    </div>
+  );
+}
 import { buildParlays, comboMaxSize, MAX_APUESTAS, type GameOptions } from "@/lib/parlay";
 import { AnalysisView } from "./AnalysisView";
 import { ParlayView } from "./ParlayView";
@@ -81,7 +98,7 @@ function CacheBadge({ cache, restantes, onRefresh }: { cache?: CacheInfo; restan
   return (
     <div className="row small muted" style={{ marginBottom: 10 }}>
       <span>{text}</span>
-      {restantes !== undefined && <span>· {restantes === null ? "sin límite diario" : `te quedan ${restantes} análisis de IA hoy`}</span>}
+      {restantes !== undefined && <span>· {restantes === null ? "admin: sin costo" : `te quedan ${restantes} créditos`}</span>}
       {(cache.hit || (parlay && cache.deCache)) && (
         <button className="link" style={{ marginLeft: "auto" }} onClick={onRefresh}>Actualizar análisis</button>
       )}
@@ -152,6 +169,8 @@ function Loading({ text }: { text: string }) {
 export default function Home() {
   const [tab, setTab] = useState<"partidos" | "parlay" | "pantalla">("partidos");
   const { session, recovery, endRecovery } = useSession();
+  const { account, setCredits } = useAccount(session);
+  const tarifas = account?.tarifas;
   const [loginOpen, setLoginOpen] = useState(false);
   const lastBody = useRef<AnalyzeBody | null>(null);
 
@@ -242,6 +261,7 @@ export default function Home() {
       if (res.status === 401) setLoginOpen(true);
       if (!res.ok) throw new Error(data.error ?? `Error ${res.status}`);
       setParlayData(data);
+      setCredits(data.restantes);
     } catch (e) {
       setParlayError((e as Error).message);
     } finally {
@@ -300,6 +320,7 @@ export default function Home() {
     try {
       const a = await requestAnalysis(body);
       setResult(a);
+      setCredits(a.restantes);
       setHistory((h) => {
         const next = [a, ...h].slice(0, 15);
         try {
@@ -379,10 +400,10 @@ export default function Home() {
         onChange={(e) => setNote(e.target.value)}
       />
       <button className="btn primary big" disabled={busy || !stream} onClick={analyzeScreen}>
-        {busy ? "Analizando…" : "🔍 Analizar"}
+        {busy ? "Analizando…" : `🔍 Analizar${tarifas ? ` · ${tarifas.captura} créditos` : ""}`}
       </button>
       {busy && <Loading text="Leyendo la pantalla y buscando estadísticas (1-2 min)…" />}
-      {error && <div className="err small">{error}</div>}
+      {error && <PayError text={error} />}
       {result && !busy && <AnalysisView a={result} compact />}
     </div>
   );
@@ -424,6 +445,8 @@ export default function Home() {
           </button>
           <button className={`btn ${tab === "pantalla" ? "on" : ""}`} onClick={() => setTab("pantalla")}>Ventana flotante</button>
           <a className="btn" href="/efectividad">📊 Efectividad</a>
+          <a className="btn" href="/planes">{account?.user ? (account.user.isAdmin ? "💎 Admin" : `💎 ${account.user.credits} créditos`) : "💎 Planes"}</a>
+          {account?.user?.isAdmin && <a className="btn" href="/admin">⚙️ Panel</a>}
           {session ? (
             <button className="btn" title={session.user.email ?? ""} onClick={() => supabase().auth.signOut()}>Salir</button>
           ) : (
@@ -626,11 +649,16 @@ export default function Home() {
               <button className="btn primary big" disabled={parlayBusy || legs.length < minGames} onClick={() => armarParlay()}>
                 {parlayBusy ? "Analizando partidos…" : legs.length < minGames ? (sameGame ? "Agrega al menos 1 partido" : "Agrega al menos 2 partidos") : "🎯 Armar parlay"}
               </button>
+              {tarifas && legs.length >= minGames && (
+                <div className="small muted">
+                  Hasta {legs.length * tarifas.parlay_partido} créditos ({tarifas.parlay_partido} por partido nuevo, {tarifas.parlay_cache} si ya está en caché)
+                </div>
+              )}
             </div>
 
             <div className="card">
               {parlayBusy && <Loading text={`La IA está analizando ${legs.length} partidos (${legs.length > 8 ? "3-6" : "1-3"} min)…`} />}
-              {parlayError && !parlayBusy && <div className="err small">{parlayError}</div>}
+              {parlayError && !parlayBusy && <PayError text={parlayError} />}
               {!parlayBusy && pendingLegs > 0 && (
                 <div className="warn small" style={{ marginBottom: 10 }}>
                   Agregaste {pendingLegs} partido(s) después del análisis. Dale “Armar parlay” otra vez para incluirlos.
@@ -677,12 +705,17 @@ export default function Home() {
                 </button>
                 {selected && <button className="btn" onClick={() => setSelected(null)}>Quitar partido</button>}
               </div>
+              {tarifas && (
+                <div className="small muted">
+                  {tarifas.analisis} créditos ({tarifas.analisis_cache} si ya está en caché; +{tarifas.analisis_extendido} con más de 3 mercados de estadísticas)
+                </div>
+              )}
             </div>
           )}
 
           <div className="card">
             {busy && <Loading text="La IA está buscando lesiones, estadísticas y momios (1-2 min)…" />}
-            {error && !busy && <div className="err small">{error}</div>}
+            {error && !busy && <PayError text={error} />}
             {!busy && result && (
               <>
                 <CacheBadge cache={result.cache} restantes={result.restantes} onRefresh={() => lastBody.current && run({ ...lastBody.current, refresh: true })} />

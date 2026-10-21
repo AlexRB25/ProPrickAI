@@ -1,18 +1,23 @@
 import { NextResponse } from "next/server";
 import { analyze, type Analysis, type AnalyzeInput } from "@/lib/ai";
+import { charge, getTarifas, hasAccess, logConsulta, refund, SIN_SUSCRIPCION, sinCreditos } from "@/lib/billing";
 import { getCached, partidoKey, putAnalysis, recordPicks, resolveGame } from "@/lib/cache";
 import type { Game } from "@/lib/espn";
-import { describeMarkets } from "@/lib/markets";
-import { aiErrorMessage, DAILY_LIMIT, fail, quotaOut, refundQuota, remainingQuota, requireUser, useQuota } from "@/lib/server";
+import { describeMarkets, isExtended } from "@/lib/markets";
+import { aiErrorMessage, fail, requireUser } from "@/lib/server";
 
 // La búsqueda web puede tardar 1-3 minutos.
 export const maxDuration = 300;
 
 const MAX_IMAGE = 6_000_000; // ~4.5 MB en base64
 
+// El costo real de la IA nunca se manda al navegador.
+const publico = (a: Analysis) => ({ ...a, costo_usd: undefined });
+
 export async function POST(req: Request) {
   const user = await requireUser(req);
   if (user instanceof NextResponse) return user;
+  if (!(await hasAccess(user))) return fail(SIN_SUSCRIPCION, 402);
 
   let body: AnalyzeInput & { refresh?: boolean };
   try {
@@ -30,27 +35,33 @@ export async function POST(req: Request) {
     if (!game) return fail("No encontré ese partido en el calendario. Recarga la lista.", 404);
   }
 
+  const tarifas = await getTarifas();
+  const ids = game ? describeMarkets(game.sport, body.mercados?.[game.sport]).ids : [];
+  const titulo = game?.title ?? (body.image ? "Captura de pantalla" : question.slice(0, 120));
+  const tipo = body.image ? "captura" : "analisis";
+
   // Solo se comparte el análisis de un partido sin captura (la captura es distinta cada vez).
-  const key = game && !body.image ? partidoKey(game, describeMarkets(game.sport, body.mercados?.[game.sport]).ids, question) : null;
+  const key = game && !body.image ? partidoKey(game, ids, question) : null;
   if (key && !body.refresh) {
     const hit = await getCached<Analysis>(key);
     if (hit) {
-      return NextResponse.json({
-        ...hit.result,
-        cache: { hit: true, creado: hit.created_at },
-        restantes: quotaOut(await remainingQuota(user)),
-      } satisfies Analysis);
+      const c = await charge(user, tarifas.analisis_cache, `cache:${titulo}`);
+      if (!c.ok) return fail(sinCreditos(c), 402);
+      await logConsulta({ userId: user.id, tipo: "analisis", titulo, creditos: user.isAdmin ? 0 : tarifas.analisis_cache, costo: 0, cache: true });
+      return NextResponse.json({ ...publico(hit.result), cache: { hit: true, creado: hit.created_at }, restantes: c.saldo } satisfies Analysis);
     }
   }
 
-  const left = await useQuota(user);
-  if (left === null) return fail(`Llegaste a tu límite de ${DAILY_LIMIT} análisis de IA por hoy. Lo que ya esté en caché no cuenta.`, 429);
+  const precio = body.image ? tarifas.captura : tarifas.analisis + (isExtended(ids) ? tarifas.analisis_extendido : 0);
+  const c = await charge(user, precio, `${tipo}:${titulo}`);
+  if (!c.ok) return fail(sinCreditos(c), 402);
+  const cobrado = user.isAdmin ? 0 : precio;
 
   try {
     const a = await analyze({ ...body, game: game ?? undefined, question });
     let creado = new Date().toISOString();
     if (key && game) {
-      const saved = await putAnalysis({ key, kind: "partido", game, result: a, model: a.modelo, userId: user.id });
+      const saved = await putAnalysis({ key, kind: "partido", game, result: publico(a), model: a.modelo, userId: user.id });
       if (saved) creado = saved.created_at;
       await recordPicks(
         saved?.id ?? null,
@@ -65,9 +76,12 @@ export async function POST(req: Request) {
         })),
       );
     }
-    return NextResponse.json({ ...a, cache: { hit: false, creado }, restantes: quotaOut(left) } satisfies Analysis);
+    await logConsulta({ userId: user.id, tipo, titulo, creditos: cobrado, costo: a.costo_usd ?? 0 });
+    return NextResponse.json({ ...publico(a), cache: { hit: false, creado }, restantes: c.saldo } satisfies Analysis);
   } catch (e) {
-    await refundQuota(user);
-    return fail(aiErrorMessage(e), 500);
+    const msg = aiErrorMessage(e);
+    await refund(user, cobrado, `${tipo}:${titulo}`);
+    await logConsulta({ userId: user.id, tipo, titulo, creditos: 0, costo: 0, ok: false, error: msg });
+    return fail(`${msg}${cobrado ? " No se te cobraron créditos." : ""}`, 500);
   }
 }

@@ -1,10 +1,11 @@
 import { NextResponse } from "next/server";
 import { analyzeParlayGames } from "@/lib/ai";
+import { charge, getTarifas, hasAccess, logConsulta, refund, SIN_SUSCRIPCION, sinCreditos } from "@/lib/billing";
 import { getCached, parlayKey, putAnalysis, recordPicks, resolveGame } from "@/lib/cache";
 import type { Game } from "@/lib/espn";
 import { describeMarkets, type MarketSelection } from "@/lib/markets";
 import { comboMaxSize, type GameOptions } from "@/lib/parlay";
-import { aiErrorMessage, DAILY_LIMIT, fail, quotaOut, refundQuota, remainingQuota, requireUser, useQuota } from "@/lib/server";
+import { aiErrorMessage, fail, requireUser } from "@/lib/server";
 
 // Tope del plan Hobby de Vercel; con muchos partidos la IA puede tardar varios minutos.
 export const maxDuration = 300;
@@ -21,6 +22,7 @@ interface Entry {
 export async function POST(req: Request) {
   const user = await requireUser(req);
   if (user instanceof NextResponse) return user;
+  if (!(await hasAccess(user))) return fail(SIN_SUSCRIPCION, 402);
 
   let raw: Game[];
   let mercados: MarketSelection | undefined;
@@ -51,20 +53,27 @@ export async function POST(req: Request) {
   const keys = games.map((g) => parlayKey(g, describeMarkets(g.sport, mercados?.[g.sport]).ids, comboMax));
   const hits = refresh ? games.map(() => null) : await Promise.all(keys.map((k) => getCached<Entry>(k)));
   const pending = games.map((g, i) => ({ g, i })).filter(({ i }) => !hits[i]);
+  const cached = games.length - pending.length;
+
+  // Precio: cada partido nuevo cuesta más que uno que ya estaba en el caché.
+  const tarifas = await getTarifas();
+  const precio = pending.length * tarifas.parlay_partido + cached * tarifas.parlay_cache;
+  const titulo = `Parlay: ${games.map((g) => g.title).join(" · ")}`;
+  const c = await charge(user, precio, titulo);
+  if (!c.ok) return fail(sinCreditos(c), 402);
+  const cobrado = user.isAdmin ? 0 : precio;
 
   const entries: (Entry | null)[] = hits.map((h) => h?.result ?? null);
-  let left = await remainingQuota(user);
+  let costo = 0;
 
   if (pending.length) {
-    const q = await useQuota(user);
-    if (q === null) return fail(`Llegaste a tu límite de ${DAILY_LIMIT} análisis de IA por hoy. Lo que ya esté en caché no cuenta.`, 429);
-    left = q;
     try {
       const fresh = await analyzeParlayGames(
         pending.map((p) => p.g),
         mercados,
         { sameGame, maxLegs, comboMax: comboMax || undefined },
       );
+      costo = fresh.costo_usd ?? 0;
       for (const { g, i } of pending) {
         const juego = fresh.juegos.find((j) => j.id === g.id);
         if (!juego) continue;
@@ -73,25 +82,33 @@ export async function POST(req: Request) {
         const saved = await putAnalysis({ key: keys[i], kind: "parlay", game: g, result: entry, model: fresh.modelo, userId: user.id });
         await recordPicks(saved?.id ?? null, "parlay", g, [
           ...juego.opciones,
-          ...(juego.combinadas ?? []).map((c) => ({
+          ...(juego.combinadas ?? []).map((cb) => ({
             mercado: "Combinada",
-            seleccion: c.selecciones.map((s) => s.seleccion).join(" + "),
-            selecciones: c.selecciones,
-            probabilidad: c.probabilidad,
-            cuota: c.cuota,
+            seleccion: cb.selecciones.map((s) => s.seleccion).join(" + "),
+            selecciones: cb.selecciones,
+            probabilidad: cb.probabilidad,
+            cuota: cb.cuota,
             cuota_estimada: true,
           })),
         ]);
       }
     } catch (e) {
-      await refundQuota(user);
-      return fail(aiErrorMessage(e), 500);
+      const msg = aiErrorMessage(e);
+      await refund(user, cobrado, titulo);
+      await logConsulta({ userId: user.id, tipo: "parlay", titulo, creditos: 0, costo: 0, ok: false, error: msg });
+      return fail(`${msg}${cobrado ? " No se te cobraron créditos." : ""}`, 500);
     }
   }
 
   // El id de un evento manual cambia por usuario: se devuelve con el id del boleto de quien pregunta.
   const juegos = entries.flatMap((e, i) => (e ? [{ ...e.juego, id: games[i].id }] : []));
-  if (!juegos.length) return fail("La IA no devolvió opciones legibles. Intenta de nuevo.", 500);
+  if (!juegos.length) {
+    await refund(user, cobrado, titulo);
+    await logConsulta({ userId: user.id, tipo: "parlay", titulo, creditos: 0, costo, ok: false, error: "Sin opciones legibles" });
+    return fail("La IA no devolvió opciones legibles. Intenta de nuevo; no se te cobraron créditos.", 500);
+  }
+  await logConsulta({ userId: user.id, tipo: "parlay", titulo, creditos: cobrado, costo, cache: pending.length === 0 });
+
   const advertencias = [...new Set(entries.flatMap((e) => e?.advertencias ?? []))];
   const fuentes = [...new Map(entries.flatMap((e) => e?.fuentes ?? []).map((f) => [f.url, f])).values()].slice(0, 15);
 
@@ -103,8 +120,8 @@ export async function POST(req: Request) {
       hit: pending.length === 0,
       creado: hits.find(Boolean)?.created_at ?? new Date().toISOString(),
       nuevos: pending.length,
-      deCache: games.length - pending.length,
+      deCache: cached,
     },
-    restantes: quotaOut(left),
+    restantes: c.saldo,
   });
 }

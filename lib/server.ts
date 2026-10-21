@@ -18,6 +18,14 @@ export interface User {
   id: string;
   email: string;
   isAdmin: boolean;
+  blocked: boolean;
+}
+
+/** Para rutas de /api/admin: el usuario si es administrador. */
+export async function requireAdmin(req: Request): Promise<User | NextResponse> {
+  if (!dbConfigured()) return fail("Falta configurar Supabase.", 500);
+  const user = await authUser(req);
+  return user?.isAdmin ? user : fail("No autorizado", 401);
 }
 
 /** Usuario de la sesión (el cliente manda `Authorization: Bearer <access token>`). */
@@ -26,30 +34,8 @@ export async function authUser(req: Request): Promise<User | null> {
   if (!token || !dbConfigured()) return null;
   const { data, error } = await db().auth.getUser(token);
   if (error || !data.user) return null;
-  const { data: profile } = await db().from("profiles").select("is_admin").eq("id", data.user.id).maybeSingle();
-  return { id: data.user.id, email: data.user.email ?? "", isAdmin: Boolean(profile?.is_admin) };
-}
-
-export const DAILY_LIMIT = Math.max(1, Number(process.env.DAILY_AI_LIMIT) || 10);
-
-/** Gasta una consulta del día. Devuelve las que quedan (Infinity para admins) o null si ya no hay. */
-export async function useQuota(user: User): Promise<number | null> {
-  if (user.isAdmin) return Infinity;
-  const { data, error } = await db().rpc("use_quota", { p_user: user.id, p_limit: DAILY_LIMIT });
-  if (error) throw new Error(`No se pudo revisar tu límite diario: ${error.message}`);
-  return data < 0 ? null : data;
-}
-
-export async function refundQuota(user: User) {
-  if (!user.isAdmin) await db().rpc("refund_quota", { p_user: user.id });
-}
-
-/** Consultas que le quedan hoy sin gastar ninguna. */
-export async function remainingQuota(user: User): Promise<number> {
-  if (user.isAdmin) return Infinity;
-  const day = new Date().toISOString().slice(0, 10);
-  const { data } = await db().from("usage").select("count").eq("user_id", user.id).eq("day", day).maybeSingle();
-  return Math.max(0, DAILY_LIMIT - (data?.count ?? 0));
+  const { data: profile } = await db().from("profiles").select("is_admin, blocked").eq("id", data.user.id).maybeSingle();
+  return { id: data.user.id, email: data.user.email ?? "", isAdmin: Boolean(profile?.is_admin), blocked: Boolean(profile?.blocked) };
 }
 
 /** Vercel Cron manda CRON_SECRET como bearer; también pueden los administradores. */
@@ -61,15 +47,14 @@ export async function cronOrAdmin(req: Request) {
 
 export const fail = (error: string, status = 400) => NextResponse.json({ error }, { status });
 
-// JSON no admite Infinity: los admins ven null (= sin límite).
-export const quotaOut = (n: number) => (Number.isFinite(n) ? n : null);
-
 /** Comprobaciones comunes de las rutas que llaman a la IA. */
 export async function requireUser(req: Request): Promise<User | NextResponse> {
   if (!process.env.ANTHROPIC_API_KEY) return fail("Falta ANTHROPIC_API_KEY en el servidor.", 500);
   if (!dbConfigured()) return fail("Falta configurar Supabase (PB_SUPABASE_URL y SUPABASE_SECRET_KEY).", 500);
   const user = await authUser(req);
-  return user ?? fail("Inicia sesión para usar la IA.", 401);
+  if (!user) return fail("Inicia sesión para usar la IA.", 401);
+  if (user.blocked) return fail("Tu cuenta está bloqueada. Escríbenos si crees que es un error.", 403);
+  return user;
 }
 
 /** Mensaje para el usuario a partir de un error de la IA. */
