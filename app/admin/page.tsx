@@ -37,7 +37,7 @@ function Resumen() {
   }, []);
   if (err) return <div className="err small">{err}</div>;
   if (!d) return <div className="muted">Cargando…</div>;
-  const margenOk = d.costoPorCredito == null || d.valorCreditoNeto == null || d.costoPorCredito <= d.valorCreditoNeto * 0.5;
+  const margenOk = d.costoPorCredito == null || d.valorCreditoNeto == null || d.costoPorCredito <= d.valorCreditoNeto * 0.7;
   return (
     <div className="stack">
       <div className="tiles">
@@ -52,7 +52,7 @@ function Resumen() {
       <div className={margenOk ? "warn small" : "err small"}>
         {d.costoPorCredito == null
           ? "Todavía no hay consultas cobradas para medir el margen."
-          : `Cada crédito cobrado nos costó en IA ${usd(d.costoPorCredito)} en promedio; el crédito más barato que vendemos deja ${usd(d.valorCreditoNeto)} neto. ${margenOk ? "Margen sano (el costo es menos de la mitad)." : "⚠ El costo pasa de la mitad del valor del crédito: sube las tarifas o los precios en la pestaña Precios."}`}
+          : `Cada crédito cobrado nos costó en IA ${usd(d.costoPorCredito)} en promedio; el crédito más barato que vendemos deja ${usd(d.valorCreditoNeto)} neto. ${margenOk ? "Margen sano (la IA cuesta menos del 70% de lo que deja el crédito)." : "⚠ La IA ya cuesta más del 70% de lo que deja el crédito más barato (margen menor a 30%): sube las tarifas o los precios en la pestaña Precios."}`}
       </div>
 
       <div className="card">
