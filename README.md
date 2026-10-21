@@ -1,0 +1,25 @@
+# Pronósticos IA
+
+Web app de pronósticos deportivos (NFL / NCAA, fútbol soccer, NBA / WNBA / NCAA) con IA.
+
+- **Partidos**: elige deporte y liga, ve los próximos partidos con momios (ESPN, sin llave) y pide el pronóstico. Puedes preguntar algo específico: "¿Dak Prescott pasa de 250.5 yardas?".
+- **Ventana flotante**: comparte la pestaña de tu casa de apuestas o quiniela, abre la ventana flotante (queda encima de todo) y pulsa **Analizar**. La IA lee la captura, busca lesiones y estadísticas actuales en la web y te da probabilidad, valor contra el momio y razones.
+- **Armar parlay**: agrega partidos de cualquier deporte al boleto (hasta 20), elige un rango de 2 a 20 apuestas y la IA arma los parlays "Más probable" y "Mejor valor" con su probabilidad de acertar, momio combinado y pago. Puede usar varias apuestas del mismo partido (ej. Cowboys ganan + Dak más de 224.5 yardas) con su probabilidad conjunta.
+
+## Arranque
+
+```bash
+npm install
+cp .env.example .env.local   # pon tu ANTHROPIC_API_KEY
+npm run dev                  # http://localhost:3000
+```
+
+La ventana flotante usa Document Picture-in-Picture: solo Chrome o Edge de escritorio.
+Cada análisis usa Claude Opus 5.5 con búsqueda web; tarda 1-2 minutos y cuesta centavos de dólar.
+`AI_EFFORT=high` da análisis más profundos a cambio de más costo y tiempo.
+
+Las probabilidades parten del momio de la casa (sin margen) y solo se mueven con evidencia; no son garantías.
+
+## Deploy en Vercel
+
+Agrega `ANTHROPIC_API_KEY` (y opcional `AI_EFFORT`) en Settings → Environment Variables. Los análisis tienen tope de 300 s por solicitud.
