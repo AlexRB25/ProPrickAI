@@ -2,6 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { NextResponse } from "next/server";
 import { analyzeParlayGames } from "@/lib/ai";
 import type { Game } from "@/lib/espn";
+import type { MarketSelection } from "@/lib/markets";
 
 // Tope del plan Hobby de Vercel; con muchos partidos la IA puede tardar varios minutos.
 export const maxDuration = 300;
@@ -13,8 +14,11 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Falta ANTHROPIC_API_KEY en .env.local del servidor." }, { status: 500 });
   }
   let games: Game[];
+  let mercados: MarketSelection | undefined;
   try {
-    games = (await req.json()).games;
+    const body = await req.json();
+    games = body.games;
+    mercados = body.mercados;
   } catch {
     return NextResponse.json({ error: "Solicitud inválida" }, { status: 400 });
   }
@@ -26,7 +30,7 @@ export async function POST(req: Request) {
   }
 
   try {
-    return NextResponse.json(await analyzeParlayGames(games));
+    return NextResponse.json(await analyzeParlayGames(games, mercados));
   } catch (e) {
     let msg = (e as Error).message;
     if (e instanceof Anthropic.AuthenticationError) msg = "La ANTHROPIC_API_KEY del servidor es inválida.";

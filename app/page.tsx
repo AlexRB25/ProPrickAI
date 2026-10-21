@@ -7,6 +7,8 @@ import type { Analysis } from "@/lib/ai";
 import { buildParlays, MAX_APUESTAS, type GameOptions } from "@/lib/parlay";
 import { AnalysisView } from "./AnalysisView";
 import { ParlayView } from "./ParlayView";
+import { MarketPicker } from "./MarketPicker";
+import { DEFAULT_MARKETS, type MarketSelection } from "@/lib/markets";
 
 declare global {
   interface Window {
@@ -24,6 +26,7 @@ const SPORTS: { id: Sport; label: string }[] = [
 
 const HISTORY_KEY = "pronosticos-historial";
 const PARLAY_KEY = "pronosticos-parlay";
+const MARKETS_KEY = "pronosticos-mercados";
 const MAX_PARLAY_GAMES = 20;
 const TAMANOS = Array.from({ length: MAX_APUESTAS - 1 }, (_, i) => i + 2);
 
@@ -33,7 +36,7 @@ interface ParlayData {
   fuentes: { title: string; url: string }[];
 }
 
-async function requestAnalysis(body: { image?: string; game?: Game; question?: string }): Promise<Analysis> {
+async function requestAnalysis(body: { image?: string; game?: Game; question?: string; mercados?: MarketSelection }): Promise<Analysis> {
   const res = await fetch("/api/analyze", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -112,6 +115,7 @@ export default function Home() {
   const [minLegs, setMinLegs] = useState(2);
   const [maxLegs, setMaxLegs] = useState(4);
   const [sameGame, setSameGame] = useState(true);
+  const [mercados, setMercados] = useState<MarketSelection>(DEFAULT_MARKETS);
   const [parlayData, setParlayData] = useState<ParlayData | null>(null);
   const [parlayBusy, setParlayBusy] = useState(false);
   const [parlayError, setParlayError] = useState("");
@@ -141,10 +145,19 @@ export default function Home() {
     try {
       const saved = localStorage.getItem(HISTORY_KEY);
       if (saved) setHistory(JSON.parse(saved));
+      const savedMarkets = localStorage.getItem(MARKETS_KEY);
+      if (savedMarkets) setMercados({ ...DEFAULT_MARKETS, ...JSON.parse(savedMarkets) });
       const savedLegs = localStorage.getItem(PARLAY_KEY);
       if (savedLegs) setLegs(JSON.parse(savedLegs));
     } catch {}
   }, []);
+
+  function saveMercados(next: MarketSelection) {
+    setMercados(next);
+    try {
+      localStorage.setItem(MARKETS_KEY, JSON.stringify(next));
+    } catch {}
+  }
 
   function saveLegs(next: Game[]) {
     setLegs(next);
@@ -166,7 +179,7 @@ export default function Home() {
       const res = await fetch("/api/parlay", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ games: legs }),
+        body: JSON.stringify({ games: legs, mercados }),
       });
       const data = await res.json().catch(() => ({ error: `Error ${res.status}` }));
       if (!res.ok) throw new Error(data.error ?? `Error ${res.status}`);
@@ -212,7 +225,7 @@ export default function Home() {
     if (videoRef.current) videoRef.current.srcObject = stream;
   }, [stream, tab]);
 
-  const run = useCallback(async (body: { image?: string; game?: Game; question?: string }) => {
+  const run = useCallback(async (body: { image?: string; game?: Game; question?: string; mercados?: MarketSelection }) => {
     setBusy(true);
     setError("");
     try {
@@ -436,6 +449,14 @@ export default function Home() {
                 </select>
                 <span>apuestas</span>
               </div>
+              <details open={legs.length > 0}>
+                <summary className="small muted" style={{ cursor: "pointer", marginBottom: 8 }}>Mercados a analizar</summary>
+                <MarketPicker
+                  sports={legs.length ? [...new Set(legs.map((l) => l.sport))] : ["americano", "soccer", "basquet"]}
+                  value={mercados}
+                  onChange={saveMercados}
+                />
+              </details>
               <label className="row small" style={{ cursor: "pointer" }}>
                 <input type="checkbox" checked={sameGame} onChange={(e) => setSameGame(e.target.checked)} />
                 Permitir varias apuestas del mismo partido (ej. Cowboys ganan + Dak más de 224.5 yardas)
@@ -485,11 +506,17 @@ export default function Home() {
                 value={question}
                 onChange={(e) => setQuestion(e.target.value)}
               />
+              {selected && (
+                <details open>
+                  <summary className="small muted" style={{ cursor: "pointer", marginBottom: 8 }}>Mercados a analizar</summary>
+                  <MarketPicker sports={[selected.sport]} value={mercados} onChange={saveMercados} />
+                </details>
+              )}
               <div className="row">
                 <button
                   className="btn primary"
                   disabled={busy || (!selected && !question.trim())}
-                  onClick={() => run({ game: selected ?? undefined, question })}
+                  onClick={() => run({ game: selected ?? undefined, question, mercados })}
                 >
                   {busy ? "Analizando…" : "Pronosticar"}
                 </button>

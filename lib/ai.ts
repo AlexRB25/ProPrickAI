@@ -1,6 +1,8 @@
 import Anthropic from "@anthropic-ai/sdk";
 import type { Game } from "./espn";
 import type { GameOptions } from "./parlay";
+import { describeMarkets, type MarketSelection } from "./markets";
+import { pool, recentForm } from "./stats";
 
 const client = new Anthropic();
 const MODEL = "claude-opus-5-5";
@@ -35,14 +37,15 @@ export interface AnalyzeInput {
   image?: string; // JPEG en base64 sin prefijo data:
   game?: Game;
   question?: string;
+  mercados?: MarketSelection;
 }
 
 // Fijo para que se pueda cachear; lo variable (fecha, partido, captura) va en el mensaje.
 const SYSTEM = `Eres un analista de apuestas deportivas (NFL, fútbol soccer y básquetbol) que da pronósticos en español de México.
 
 Cómo trabajas:
-1. Identifica qué se te pide: un partido (ganador, hándicap, total de puntos/goles) o el desempeño de un jugador (yardas, puntos, rebotes, goles, tiros, etc.). Si recibes una captura de pantalla de una casa de apuestas o quiniela, lee los partidos, mercados, líneas y momios que se vean y analiza esos. Si hay muchos, elige los 6 más claros; en una quiniela da un pronóstico por partido.
-2. Busca en la web datos ACTUALES antes de opinar: lesionados y reportes de estado, forma reciente (últimos 5 partidos), estadísticas ofensivas y defensivas de la temporada y su lugar en la liga, enfrentamiento directo, local/visitante, descanso y viajes, clima si es al aire libre. Para jugadores: promedio de la temporada y de los últimos 3-5 juegos, rango (mínimo y máximo), uso/minutos/snaps, y qué permite la defensa rival en esa estadística.
+1. Identifica qué se te pide: un partido (ganador, hándicap, total de puntos/goles) o el desempeño de un jugador (yardas, puntos, rebotes, goles, tiros, etc.). Si recibes una captura de pantalla de una casa de apuestas o quiniela, lee los partidos, mercados, líneas y momios que se vean y analiza esos. Si hay muchos, elige los 6 más claros; en una quiniela da un pronóstico por partido. Si te dan una lista de mercados, da un pick por cada mercado de la lista donde encuentres datos suficientes (hasta 10 picks) y di en advertencias cuáles no pudiste analizar.
+2. Busca en la web datos ACTUALES antes de opinar: lesionados y reportes de estado, forma reciente (últimos 5 partidos), estadísticas ofensivas y defensivas de la temporada y su lugar en la liga, enfrentamiento directo, local/visitante, descanso y viajes, clima si es al aire libre. Para mercados de equipo como córners, tarjetas, faltas, tiros o goles de campo: promedios a favor y en contra de cada equipo (local/visitante), tendencia reciente y, en tarjetas y faltas, el promedio del árbitro designado. Esos datos están en sitios de estadísticas como FootyStats, FBref, SoccerStats, WhoScored, Flashscore, TeamRankings o Pro Football Reference: busca algo como "Ipswich corners per game 2025/26" y abre la página con web_fetch para leer la tabla; no te rindas con una sola búsqueda. Reparte tus búsquedas entre todos los mercados pedidos. Para jugadores: promedio de la temporada y de los últimos 3-5 juegos, rango (mínimo y máximo), uso/minutos/snaps, y qué permite la defensa rival en esa estadística.
 3. Calcula la probabilidad con honestidad:
    - Si hay momio, conviértelo a probabilidad implícita y quítale el margen de la casa; ese es tu punto de partida, porque el mercado ya contiene mucha información.
    - Muévete de ahí solo con evidencia concreta y explica cada ajuste. Un desvío de más de 8 puntos respecto al mercado necesita una razón fuerte (lesión clave no descontada, etc.).
@@ -50,7 +53,8 @@ Cómo trabajas:
    - No pases de 85% salvo casos extremos. Los deportes tienen mucha varianza; 55-65% ya es una ventaja real.
    - "valor" es "a favor" solo si tu probabilidad supera la implícita del momio por 3 puntos o más; "en contra" si queda 3 o más por debajo.
 4. Las razones deben ser concretas y con números (ej. "Promedia 251 yardas, pero Green Bay permite 178 por partido, 2.º mejor de la liga"). Nada de frases genéricas.
-5. Si no encuentras un dato, dilo. Nunca inventes estadísticas ni lesiones.
+5. Si te doy "Datos reales de los últimos partidos", son box scores verificados: úsalos primero para córners, faltas, tarjetas, goles de campo, yardas y props, y no gastes búsquedas en lo que ya está ahí; busca lo que falte (lesiones, árbitro, temporada completa).
+6. Si no encuentras un dato, dilo. Nunca inventes estadísticas ni lesiones.
 
 Al terminar, escribe un resumen breve y luego el resultado EXACTAMENTE en este formato, entre etiquetas <json> y </json>, JSON válido sin comentarios:
 <json>
@@ -92,6 +96,13 @@ function describeGame(g: Game) {
   return lines.join("\n");
 }
 
+// Los mercados de estadísticas (córners, tarjetas, props…) piden búsquedas propias.
+const BASICOS = new Set(["ganador", "handicap", "total", "resultado", "doble", "goles", "ambos"]);
+function searchBudget(ids: string[] | undefined) {
+  const extra = (ids ?? []).filter((id) => !BASICOS.has(id)).length;
+  return Math.min(18, 6 + extra * 2);
+}
+
 function extractJson<T>(text: string): T | null {
   const m = text.match(/<json>([\s\S]*?)<\/json>/) ?? text.match(/```json\s*([\s\S]*?)```/);
   if (!m) return null;
@@ -110,10 +121,16 @@ function clampPct(n: unknown): number {
 export async function analyze(input: AnalyzeInput): Promise<Analysis> {
   const today = new Date().toLocaleString("es-MX", { dateStyle: "full", timeStyle: "short", timeZone: "America/Mexico_City" });
   const parts: string[] = [`Hoy es ${today} (hora del centro de México).`];
-  if (input.game) parts.push(describeGame(input.game));
+  if (input.game) {
+    parts.push(describeGame(input.game));
+    const form = await recentForm(input.game, 5).catch(() => "");
+    if (form) parts.push(form);
+  }
   if (input.image) parts.push("Adjunto una captura de la pantalla que estoy viendo (casa de apuestas o quiniela). Analiza lo que aparece en ella.");
+  const mercados = input.game ? describeMarkets(input.game.sport, input.mercados?.[input.game.sport]) : null;
+  if (mercados) parts.push(`Mercados que me interesan: ${mercados.text}.`);
   if (input.question?.trim()) parts.push(`Lo que quiero saber: ${input.question.trim()}`);
-  else if (input.game) parts.push("Dame el pronóstico del ganador, el total de puntos/goles y, si hay jugadores destacados, 1-2 props de jugador interesantes.");
+  else if (input.game) parts.push("Dame un pick por cada mercado de la lista donde tengas datos.");
 
   const content: Anthropic.Beta.BetaContentBlockParam[] = [];
   if (input.image) {
@@ -121,7 +138,7 @@ export async function analyze(input: AnalyzeInput): Promise<Analysis> {
   }
   content.push({ type: "text", text: parts.join("\n\n") });
 
-  const { text, fuentes, model } = await runClaude(SYSTEM, content, 8);
+  const { text, fuentes, model } = await runClaude(SYSTEM, content, searchBudget(mercados?.ids));
 
   const parsed = extractJson<Omit<Analysis, "fuentes" | "modelo">>(text);
   if (!parsed) {
@@ -170,7 +187,11 @@ async function runClaude(system: string, content: Anthropic.Beta.BetaContentBloc
       thinking: { type: "adaptive" },
       output_config: { effort: EFFORT },
       system: [{ type: "text", text: system, cache_control: { type: "ephemeral" } }],
-      tools: [{ type: "web_search_20260209", name: "web_search", max_uses: maxSearches }],
+      tools: [
+        { type: "web_search_20260209", name: "web_search", max_uses: maxSearches },
+        // Para leer tablas completas de estadísticas (córners, tarjetas, props) de las páginas encontradas.
+        { type: "web_fetch_20260209", name: "web_fetch", max_uses: Math.ceil(maxSearches / 2) },
+      ],
       messages,
     });
     final = await stream.finalMessage();
@@ -207,14 +228,15 @@ const PARLAY_SYSTEM = `Eres un analista de apuestas deportivas (NFL, fútbol soc
 
 Recibes una lista de partidos (cada uno con su id). Para CADA partido:
 1. Busca en la web datos ACTUALES: lesionados, forma reciente, estadísticas ofensivas y defensivas, local/visitante, descanso, clima si aplica, y los números de los jugadores clave (promedio de la temporada y de los últimos juegos, y qué permite el rival en esa estadística).
-2. "opciones": de 3 a 5 apuestas sueltas de distinto riesgo. Incluye siempre la MÁS PROBABLE (favorito, doble oportunidad en soccer, hándicap o total alterno), alguna con mejor pago (ganador, hándicap o total principal) y 1-2 props de jugador cuando tengas datos (NFL: yardas de pase/carrera/recepción, anotación; NBA: puntos, rebotes, asistencias; soccer: goleador, tiros a gol).
+2. "opciones": de 3 a 8 apuestas sueltas de distinto riesgo, SOLO de los "Mercados a considerar" de ese partido (cubre todos los que puedas con datos; di en advertencias cuáles no). Incluye la MÁS PROBABLE (favorito, doble oportunidad, hándicap o total alterno) y alguna con mejor pago. Para córners, tarjetas, faltas, tiros o goles de campo usa promedios a favor y en contra de cada equipo y, en tarjetas y faltas, el promedio del árbitro designado. Esos datos están en FootyStats, FBref, SoccerStats, WhoScored, Flashscore, TeamRankings o Pro Football Reference: búscalos y abre la página con web_fetch para leer la tabla. Reparte tus búsquedas entre todos los mercados.
 3. "combinadas": 1 o 2 combinaciones del MISMO partido (same game parlay) de 2 o 3 selecciones. Reglas:
-   - Cada selección de un mercado distinto. Nada redundante ni contradictorio: no juntes "X gana" con un hándicap de X, dos líneas del mismo total, ni dos props del mismo jugador y la misma estadística. Usa combinaciones que las casas sí aceptan, como "Cowboys ganan + Dak Prescott más de 224.5 yardas de pase" o "Más de 2.5 goles + Ambos anotan: Sí".
+   - Usa los mercados a considerar del partido. Cada selección de un mercado distinto. Nada redundante ni contradictorio: no juntes "X gana" con un hándicap de X, dos líneas del mismo total, ni dos props del mismo jugador y la misma estadística. Usa combinaciones que las casas sí aceptan, como "Cowboys ganan + Dak Prescott más de 224.5 yardas de pase" o "Más de 2.5 goles + Ambos anotan: Sí".
    - "probabilidad" es la probabilidad de que se cumplan TODAS juntas, considerando que están relacionadas. Si se ayudan entre sí (el equipo gana y su QB lanza mucho), la conjunta es MAYOR que multiplicarlas; si se estorban, es MENOR. No las multipliques sin más.
    - "cuota" es el momio americano aproximado que pagaría la casa por esa combinada.
-4. Calcula las probabilidades con honestidad: parte del momio de la casa sin margen y muévete solo con evidencia concreta; ninguna suelta pasa de 90%. Nunca inventes estadísticas ni lesiones.
-5. "seleccion" debe entenderse sola, sin leer el mercado (ej. "Ambos anotan: Sí", "Bears ganan", "Dak Prescott más de 224.5 yardas de pase").
-6. "cuota" es el momio americano (ej. "-150", "+120"). Si viene en los datos o lo encontraste, pon "cuota_estimada": false. Si no lo sabes con exactitud, pon el momio típico del mercado y "cuota_estimada": true.
+4. Si un partido trae "Datos reales de los últimos partidos", son box scores verificados: úsalos primero (córners, faltas, tarjetas, goles de campo, yardas, props) y busca solo lo que falte.
+5. Calcula las probabilidades con honestidad: parte del momio de la casa sin margen y muévete solo con evidencia concreta; ninguna suelta pasa de 90%. Nunca inventes estadísticas ni lesiones.
+6. "seleccion" debe entenderse sola, sin leer el mercado (ej. "Ambos anotan: Sí", "Bears ganan", "Dak Prescott más de 224.5 yardas de pase").
+7. "cuota" es el momio americano (ej. "-150", "+120"). Si viene en los datos o lo encontraste, pon "cuota_estimada": false. Si no lo sabes con exactitud, pon el momio típico del mercado y "cuota_estimada": true.
 
 Sé breve en el texto. Al final escribe EXACTAMENTE este formato entre <json> y </json>, JSON válido sin comentarios:
 <json>
@@ -244,15 +266,20 @@ Sé breve en el texto. Al final escribe EXACTAMENTE este formato entre <json> y 
 </json>
 "probabilidad" es un número de 0 a 100.`;
 
-export async function analyzeParlayGames(games: Game[]) {
+export async function analyzeParlayGames(games: Game[], seleccion?: MarketSelection) {
+  // Con muchos partidos, 3 juegos por equipo para no inflar el mensaje.
+  const forms = await pool(games.map((g) => () => recentForm(g, games.length > 8 ? 3 : 5).catch(() => "")), 3);
   const today = new Date().toLocaleString("es-MX", { dateStyle: "full", timeStyle: "short", timeZone: "America/Mexico_City" });
   const text = [
     `Hoy es ${today} (hora del centro de México).`,
-    ...games.map((g, i) => `### Partido ${i + 1} (id: ${g.id})\n${describeGame(g)}`),
+    ...games.map(
+      (g, i) =>
+        `### Partido ${i + 1} (id: ${g.id})\n${describeGame(g)}\nMercados a considerar: ${describeMarkets(g.sport, seleccion?.[g.sport]).text}.${forms[i] ? `\n${forms[i]}` : ""}`,
+    ),
   ].join("\n\n");
 
-  // Unas dos búsquedas por partido (los props de jugadores piden más datos), con tope.
-  const res = await runClaude(PARLAY_SYSTEM, [{ type: "text", text }], Math.min(32, games.length * 2 + 2));
+  // Búsquedas por partido según cuántos mercados de estadísticas se pidieron, con tope.
+  const res = await runClaude(PARLAY_SYSTEM, [{ type: "text", text }], Math.min(40, games.reduce((n, g) => n + Math.ceil(searchBudget(describeMarkets(g.sport, seleccion?.[g.sport]).ids) / 3), 2)));
   const parsed = extractJson<{ juegos?: GameOptions[]; advertencias?: string[] }>(res.text);
   if (!parsed?.juegos?.length) throw new Error("La IA no devolvió opciones legibles. Intenta de nuevo.");
 

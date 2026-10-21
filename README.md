@@ -5,6 +5,8 @@ Web app de pronósticos deportivos (NFL / NCAA, fútbol soccer, NBA / WNBA / NCA
 - **Partidos**: elige deporte y liga, ve los próximos partidos con momios (ESPN, sin llave) y pide el pronóstico. Puedes preguntar algo específico: "¿Dak Prescott pasa de 250.5 yardas?".
 - **Ventana flotante**: comparte la pestaña de tu casa de apuestas o quiniela, abre la ventana flotante (queda encima de todo) y pulsa **Analizar**. La IA lee la captura, busca lesiones y estadísticas actuales en la web y te da probabilidad, valor contra el momio y razones.
 - **Armar parlay**: agrega partidos de cualquier deporte al boleto (hasta 20), elige un rango de 2 a 20 apuestas y la IA arma los parlays "Más probable" y "Mejor valor" con su probabilidad de acertar, momio combinado y pago. Puede usar varias apuestas del mismo partido (ej. Cowboys ganan + Dak más de 224.5 yardas) con su probabilidad conjunta.
+- **Mercados a elegir**: en el análisis de un partido y en el parlay escoges qué mercados considerar: córners, tarjetas, faltas, tiros, goleador, goles de campo, yardas, props de NBA, etc.
+- **Datos reales**: antes de llamar a la IA se bajan los box scores de los últimos 5 partidos de cada equipo desde ESPN (córners, faltas, tarjetas, goles de campo, yardas y números de jugadores) y se le pasan como datos verificados.
 
 ## Arranque
 
