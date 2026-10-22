@@ -127,18 +127,28 @@ export interface PickIn {
   cuota_estimada: boolean;
 }
 
-/** Guarda los picks una sola vez por partido y selección (los repetidos se ignoran). */
-export async function recordPicks(analysisId: string | null, origen: "partido" | "parlay", game: Game, picks: PickIn[]) {
-  if (game.state === "post" || picks.length === 0) return;
+/** Identidad única de un pick: partido + mercado + selección (o las selecciones de una combinada). */
+export function pickKeyFor(game: Game, p: Pick<PickIn, "mercado" | "seleccion" | "selecciones">) {
+  const combo = p.selecciones && p.selecciones.length > 1;
+  const id = combo ? p.selecciones!.map((s) => norm(s.seleccion)).sort().join("+") : `${norm(p.mercado)}|${norm(p.seleccion)}`;
+  return `${gameKey(game)}|${id}`;
+}
+
+/**
+ * Guarda los picks una sola vez por partido y selección (los repetidos se ignoran).
+ * Devuelve pick_key → id de todos, nuevos o ya existentes.
+ */
+export async function recordPicks(analysisId: string | null, origen: "partido" | "parlay", game: Game, picks: PickIn[]): Promise<Map<string, string>> {
+  const ids = new Map<string, string>();
+  if (game.state === "post" || picks.length === 0) return ids;
   const gk = gameKey(game);
   const rows = picks
     .filter((p) => p.seleccion.trim())
     .map((p) => {
       const combo = p.selecciones && p.selecciones.length > 1;
       const sel = combo ? p.selecciones!.map((s) => s.seleccion).join(" + ") : p.seleccion;
-      const id = combo ? p.selecciones!.map((s) => norm(s.seleccion)).sort().join("+") : `${norm(p.mercado)}|${norm(p.seleccion)}`;
       return {
-        pick_key: `${gk}|${id}`,
+        pick_key: pickKeyFor(game, p),
         analysis_id: analysisId,
         origen,
         game_id: gk,
@@ -158,4 +168,7 @@ export async function recordPicks(analysisId: string | null, origen: "partido" |
     });
   const { error } = await db().from("picks").upsert(rows, { onConflict: "pick_key", ignoreDuplicates: true });
   if (error) console.error("No se guardaron los picks:", error.message);
+  const { data } = await db().from("picks").select("id, pick_key").in("pick_key", rows.map((r) => r.pick_key));
+  for (const r of data ?? []) ids.set(r.pick_key, r.id);
+  return ids;
 }

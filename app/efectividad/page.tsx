@@ -183,6 +183,7 @@ export default function Efectividad() {
         <a className="brand" href="/" style={{ textDecoration: "none", color: "inherit" }}>Pronósticos <span>IA</span></a>
         <div className="tabs">
           <a className="btn" href="/">← Volver</a>
+          <a className="btn" href="/apuestas">🗳️ Apuestas</a>
           {isAdmin && <button className="btn" onClick={calificar}>Calificar ahora</button>}
           {session ? (
             <button className="btn" onClick={() => supabase().auth.signOut()}>Salir</button>

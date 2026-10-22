@@ -255,7 +255,7 @@ export default function Home() {
       const res = await authFetch("/api/parlay", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ games: legs, mercados, sameGame, maxLegs, refresh }),
+        body: JSON.stringify({ games: legs, mercados, sameGame, minLegs, maxLegs, refresh }),
       });
       const data = await res.json().catch(() => ({ error: `Error ${res.status}` }));
       if (res.status === 401) setLoginOpen(true);
@@ -444,6 +444,7 @@ export default function Home() {
             Armar parlay{legs.length > 0 ? ` (${legs.length})` : ""}
           </button>
           <button className={`btn ${tab === "pantalla" ? "on" : ""}`} onClick={() => setTab("pantalla")}>Ventana flotante</button>
+          <a className="btn" href="/apuestas">🗳️ Apuestas</a>
           <a className="btn" href="/efectividad">📊 Efectividad</a>
           <a className="btn" href="/planes">{account?.user ? (account.user.isAdmin ? "💎 Admin" : `💎 ${account.user.credits} créditos`) : "💎 Planes"}</a>
           {account?.user?.isAdmin && <a className="btn" href="/admin">⚙️ Panel</a>}

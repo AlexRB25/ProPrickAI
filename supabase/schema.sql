@@ -264,6 +264,51 @@ create table if not exists public.bug_reports (
 );
 create index if not exists bug_reports_created_idx on public.bug_reports (created_at desc);
 
+-- ---------- Sección pública "Apuestas": parlays publicados, votos y comentarios ----------
+-- Nombre que se muestra en comentarios (si no hay, se usa el inicio del correo con asteriscos).
+alter table public.profiles add column if not exists alias text;
+
+-- Cada parlay que se armó, una sola vez (parlay_key = picks que lo forman, ordenados).
+create table if not exists public.parlays (
+  id uuid primary key default gen_random_uuid(),
+  parlay_key text not null unique,
+  tipo text not null,
+  piernas jsonb not null,       -- [{ pick_id, partido, selecciones, probabilidad, cuota, razon, ... }]
+  pick_ids uuid[] not null,
+  apuestas int not null,
+  partidos int not null,
+  probabilidad numeric(6, 2) not null,
+  cuota_americana text,
+  sports text[] not null,
+  first_game timestamptz not null, -- se vota hasta que empieza el primer partido
+  created_by uuid references auth.users (id) on delete set null,
+  created_at timestamptz not null default now()
+);
+create index if not exists parlays_created_idx on public.parlays (created_at desc);
+create index if not exists picks_origen_idx on public.picks (origen, created_at desc);
+
+-- Un voto por usuario y apuesta: 1 = le entra, -1 = no le entra.
+create table if not exists public.votos (
+  user_id uuid not null references auth.users (id) on delete cascade,
+  target_type text not null check (target_type in ('pick', 'parlay')),
+  target_id uuid not null,
+  valor smallint not null check (valor in (-1, 1)),
+  created_at timestamptz not null default now(),
+  primary key (user_id, target_type, target_id)
+);
+create index if not exists votos_target_idx on public.votos (target_type, target_id);
+
+create table if not exists public.comentarios (
+  id bigint generated always as identity primary key,
+  user_id uuid not null references auth.users (id) on delete cascade,
+  target_type text not null check (target_type in ('pick', 'parlay')),
+  target_id uuid not null,
+  texto text not null check (length(texto) between 1 and 1000),
+  oculto boolean not null default false,
+  created_at timestamptz not null default now()
+);
+create index if not exists comentarios_target_idx on public.comentarios (target_type, target_id, created_at desc);
+
 -- ---------- Limpieza de la versión anterior (límite diario) ----------
 drop function if exists public.use_quota(uuid, int);
 drop function if exists public.refund_quota(uuid);
@@ -283,6 +328,9 @@ alter table public.analyses enable row level security;
 alter table public.consultas enable row level security;
 alter table public.picks enable row level security;
 alter table public.bug_reports enable row level security;
+alter table public.parlays enable row level security;
+alter table public.votos enable row level security;
+alter table public.comentarios enable row level security;
 
 drop policy if exists "perfil propio" on public.profiles;
 create policy "perfil propio" on public.profiles for select using (auth.uid() = id);

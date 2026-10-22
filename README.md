@@ -10,6 +10,8 @@ Web app de pronósticos con IA para más de 30 deportes y eventos. Con calendari
 - **Caché compartido**: cada análisis se guarda en Supabase y se reutiliza para cualquier usuario mientras siga vigente (12 h si faltan más de 2 días, 3 h si faltan más de 6 h, 45 min cerca del partido). En parlays se guarda por partido.
 - **Suscripción y créditos** (Mercado Pago): plan mensual (US$9.99, 60 créditos) o anual (US$99.99, 720 créditos) y paquetes de créditos para suscriptores. Cada consulta cobra créditos según la tabla `tarifas` (menos si sale del caché); si la IA falla se devuelven. Todo editable en `/admin`.
 - **Panel de administración** (`/admin`): resumen del negocio (ingresos, costo real de la IA, ganancia, margen por crédito), usuarios con historial de consultas, pagos y créditos; agregar o quitar créditos, regalar o quitar suscripciones, bloquear; historial global de consultas; reportes de fallas; precios.
+- **Apuestas de la comunidad** (`/apuestas`, pública): cada pick de un análisis individual y cada parlay armado se publica una sola vez. La gente vota "le entra / no le entra" (en parlays, completo o por cada apuesta), comenta y ve la gráfica de votos junto a lo que dijo la IA. Las votaciones cierran al empezar el partido; los admins pueden ocultar comentarios.
+- **Parlays variados**: cada parlay castiga las apuestas que ya salieron en los anteriores, para que una sola apuesta fallida no tumbe a todos.
 - **Reportar falla**: botón fijo en todas las páginas.
 - **Efectividad** (pública, en `/efectividad`): cada pick se guarda una vez y se califica solo cuando acaba el partido (ESPN + IA, o búsqueda web en eventos sin ESPN). Muestra acierto contra lo esperado, ROI, calibración, por deporte y por mercado, con filtros por deporte, liga y estado.
 

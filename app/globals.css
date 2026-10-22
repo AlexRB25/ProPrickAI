@@ -176,3 +176,28 @@ a.btn { text-decoration: none; display: inline-flex; align-items: center; }
 tr.clickable { cursor: pointer; }
 tr.clickable:hover td { background: var(--panel-2); }
 .tbl .field { padding: 5px 7px; min-width: 70px; }
+
+/* Apuestas de la comunidad */
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; }
+.bet-card { display: flex; flex-direction: column; gap: 8px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; color: var(--text); text-decoration: none; }
+.bet-card:hover { border-color: var(--muted); }
+.votebar-wrap { display: flex; flex-direction: column; gap: 4px; }
+.votebar { display: flex; gap: 2px; height: 10px; border-radius: 99px; overflow: hidden; background: var(--panel); }
+.votebar > div { height: 100%; }
+.votebar > div:first-child { border-radius: 99px 0 0 99px; }
+.votebar > div:last-child { border-radius: 0 99px 99px 0; }
+.votebar > div:only-child { border-radius: 99px; }
+.votebar.empty { background: var(--line); }
+.vote { border: 1px solid var(--line); background: var(--panel-2); color: var(--text); border-radius: 999px; padding: 6px 12px; }
+.vote.sm { padding: 4px 10px; font-size: 13px; }
+.vote:hover { border-color: var(--muted); }
+.vote.on-si { border-color: var(--s1); background: color-mix(in srgb, var(--s1) 25%, transparent); }
+.vote.on-no { border-color: var(--s2); background: color-mix(in srgb, var(--s2) 25%, transparent); }
+.leg-chart { display: flex; flex-direction: column; gap: 4px; }
+.hbar { position: relative; height: 20px; background: var(--panel-2); border-radius: 4px; overflow: visible; }
+.hbar > div { height: 100%; border-radius: 4px; }
+.hbar > span { position: absolute; left: 8px; top: 1px; font-size: 12px; color: var(--text); }
+.hbar .mark { position: absolute; top: -3px; bottom: -3px; width: 2px; background: var(--text); transform: translateX(-1px); }
+.mark-key { display: inline-block; width: 2px !important; height: 12px !important; background: var(--text) !important; margin: 0 6px 0 4px; vertical-align: -2px; border-radius: 0 !important; }
+.comment { border-top: 1px solid var(--line); padding-top: 8px; }
+.comment.hidden { opacity: .5; }

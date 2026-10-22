@@ -38,7 +38,7 @@ export interface Leg {
 }
 
 export interface Parlay {
-  tipo: "Más probable" | "Mejor valor";
+  tipo: "Segura" | "Valor";
   piernas: Leg[];
   apuestas: number; // total de selecciones
   partidos: number;
@@ -130,25 +130,41 @@ function best(games: Leg[][], score: (l: Leg) => number | null): (Leg[] | null)[
   return dp.map((c) => c?.legs ?? null);
 }
 
-const key = (legs: Leg[]) =>
-  legs.map((l) => `${l.gameId}:${l.selecciones.map((s) => s.seleccion).join("+")}`).sort().join("|");
+const legKey = (l: Leg) => `${l.gameId}:${l.selecciones.map((s) => s.seleccion).join("+")}`;
+const key = (legs: Leg[]) => legs.map(legKey).sort().join("|");
+
+// Cada vez que una apuesta ya salió en otro parlay, su puntaje se multiplica por esto. Así los
+// parlays se arman con selecciones distintas y una sola apuesta fallida no tumba a todos.
+const REPETIDA = 0.7;
 
 export function buildParlays(games: GameOptions[], minLegs: number, maxLegs: number, sameGame = false): Parlay[] {
   const perGame = games.map((g) => legsOf(g, sameGame)).filter((l) => l.length > 0);
-  const safest = best(perGame, (l) => l.probabilidad / 100);
-  const value = best(perGame, (l) => {
+  const usos = new Map<string, number>();
+  const castigo = (l: Leg) => REPETIDA ** (usos.get(legKey(l)) ?? 0);
+  const segura = (l: Leg) => (l.probabilidad / 100) * castigo(l);
+  const valor = (l: Leg) => {
     const d = americanToDecimal(l.cuota);
-    return d == null ? null : (l.probabilidad / 100) * d;
-  });
+    return d == null ? null : (l.probabilidad / 100) * d * castigo(l);
+  };
+  const usar = (legs: Leg[]) => legs.forEach((l) => usos.set(legKey(l), (usos.get(legKey(l)) ?? 0) + 1));
 
   const lo = Math.max(2, Math.min(minLegs, maxLegs));
   const hi = Math.min(Math.max(minLegs, maxLegs), MAX_APUESTAS);
   const out: Parlay[] = [];
+  const vistos = new Set<string>();
   for (let k = lo; k <= hi; k++) {
-    const s = safest[k];
-    if (s && s.length > 0) out.push(makeParlay("Más probable", s));
-    const v = value[k];
-    if (v && v.length > 0 && (!s || key(v) !== key(s))) out.push(makeParlay("Mejor valor", v));
+    for (const [tipo, score] of [["Segura", segura], ["Valor", valor]] as const) {
+      const legs = best(perGame, score)[k];
+      if (!legs?.length || vistos.has(key(legs))) continue;
+      vistos.add(key(legs));
+      out.push(makeParlay(tipo, legs));
+      usar(legs);
+    }
   }
   return out;
+}
+
+/** Identidad de una pierna (para enlazarla con su pick). */
+export function legKeyOf(l: Leg) {
+  return legKey(l);
 }

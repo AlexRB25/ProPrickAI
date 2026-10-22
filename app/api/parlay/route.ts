@@ -5,6 +5,7 @@ import { getCached, parlayKey, putAnalysis, recordPicks, resolveGame } from "@/l
 import type { Game } from "@/lib/espn";
 import { describeMarkets, type MarketSelection } from "@/lib/markets";
 import { comboMaxSize, type GameOptions } from "@/lib/parlay";
+import { publishParlays } from "@/lib/publicar";
 import { aiErrorMessage, fail, requireUser } from "@/lib/server";
 
 // Tope del plan Hobby de Vercel; con muchos partidos la IA puede tardar varios minutos.
@@ -28,6 +29,7 @@ export async function POST(req: Request) {
   let mercados: MarketSelection | undefined;
   let sameGame = true;
   let maxLegs = 4;
+  let minLegs = 2;
   let refresh = false;
   try {
     const body = await req.json();
@@ -35,6 +37,7 @@ export async function POST(req: Request) {
     mercados = body.mercados;
     sameGame = body.sameGame !== false;
     maxLegs = Math.min(20, Math.max(2, Number(body.maxLegs) || 4));
+    minLegs = Math.min(maxLegs, Math.max(2, Number(body.minLegs) || 2));
     refresh = body.refresh === true;
   } catch {
     return fail("Solicitud inválida");
@@ -108,6 +111,8 @@ export async function POST(req: Request) {
     return fail("La IA no devolvió opciones legibles. Intenta de nuevo; no se te cobraron créditos.", 500);
   }
   await logConsulta({ userId: user.id, tipo: "parlay", titulo, creditos: cobrado, costo, cache: pending.length === 0 });
+  // Se publican en la sección Apuestas (los ya publicados no se repiten).
+  const publicados = await publishParlays({ games, juegos, minLegs, maxLegs, sameGame, userId: user.id }).catch(() => 0);
 
   const advertencias = [...new Set(entries.flatMap((e) => e?.advertencias ?? []))];
   const fuentes = [...new Map(entries.flatMap((e) => e?.fuentes ?? []).map((f) => [f.url, f])).values()].slice(0, 15);
@@ -123,5 +128,6 @@ export async function POST(req: Request) {
       deCache: cached,
     },
     restantes: c.saldo,
+    publicados,
   });
 }

@@ -36,8 +36,8 @@ export function ParlayView({
   return (
     <div className="result stack">
       <div className="small muted">
-        La probabilidad de un parlay es la multiplicación de sus apuestas: cada pierna que agregas la baja. “Más probable” usa la
-        opción más segura de cada partido; “Mejor valor” la que más paga en relación con su probabilidad. Las apuestas del mismo
+        La probabilidad de un parlay es la multiplicación de sus apuestas: cada pierna que agregas la baja. “Segura” busca la mayor
+        probabilidad; “Valor”, lo que más paga en relación con su probabilidad. Cada parlay evita repetir las apuestas de los anteriores para que, si una falla, no se caigan todos. Las apuestas del mismo
         partido traen su probabilidad conjunta, porque se afectan entre sí.
       </div>
 
