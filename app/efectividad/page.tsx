@@ -5,6 +5,7 @@ import { sportInfo } from "@/lib/espn";
 import type { Group, PickPublic, Stats, Status } from "@/lib/efectividad";
 import { authFetch, supabase, supabaseConfigured } from "@/lib/supabase-browser";
 import { LoginModal, useSession } from "../Auth";
+import { BlockingLoader } from "../BlockingLoader";
 
 interface Data {
   stats: Stats;
@@ -180,7 +181,7 @@ export default function Efectividad() {
   return (
     <div className="wrap">
       <div className="top">
-        <a className="brand" href="/" style={{ textDecoration: "none", color: "inherit" }}>Pronósticos <span>IA</span></a>
+        <a className="brand" href="/" style={{ textDecoration: "none", color: "inherit" }}>ProPicks<span>AI</span></a>
         <div className="tabs">
           <a className="btn" href="/">← Volver</a>
           <a className="btn" href="/apuestas">🗳️ Apuestas</a>
@@ -281,6 +282,7 @@ export default function Efectividad() {
       {loading && !s && <div className="muted">Cargando…</div>}
 
       <div className="disclaimer">Resultados pasados no garantizan resultados futuros. Apuesta solo lo que puedas perder. +18.</div>
+      <BlockingLoader show={grading === "Calificando partidos terminados…"} quick title="Calificando partidos terminados…" detail="Comparando cada pick con el resultado oficial" />
       <LoginModal open={loginOpen} onClose={() => setLoginOpen(false)} />
     </div>
   );

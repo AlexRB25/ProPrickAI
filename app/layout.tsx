@@ -3,8 +3,8 @@ import "./globals.css";
 import { BugButton } from "./BugButton";
 
 export const metadata: Metadata = {
-  title: "Pronósticos IA",
-  description: "Pronósticos con IA para NFL, fútbol y básquetbol, con ventana flotante que analiza tu pantalla.",
+  title: "ProPicksAI",
+  description: "Pronósticos con IA para más de 30 deportes: análisis, parlays, ganadores y ventana flotante que analiza tu pantalla.",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

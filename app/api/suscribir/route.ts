@@ -24,7 +24,7 @@ export async function POST(req: Request) {
   const res = await mercadoPago("/preapproval", {
     method: "POST",
     body: JSON.stringify({
-      reason: `Pronósticos IA · Plan ${plan.data.name}`,
+      reason: `ProPicksAI · Plan ${plan.data.name}`,
       external_reference: `${user.id}:${plan.data.id}`,
       payer_email: email,
       auto_recurring: {

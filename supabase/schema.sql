@@ -1,4 +1,4 @@
--- Pronósticos IA: usuarios, suscripciones y créditos (Mercado Pago), caché compartido de análisis,
+-- ProPicksAI: usuarios, suscripciones y créditos (Mercado Pago), caché compartido de análisis,
 -- picks para la sección de efectividad, historial de consultas y reportes de fallas.
 -- Pegar completo en Supabase → SQL Editor → Run. Se puede volver a correr sin perder datos
 -- (los precios ya guardados no se sobrescriben).

@@ -27,6 +27,7 @@ import { buildParlays, comboMaxSize, MAX_APUESTAS, type GameOptions } from "@/li
 import { AnalysisView } from "./AnalysisView";
 import { ParlayView } from "./ParlayView";
 import { GanadoresPanel } from "./GanadoresPanel";
+import { BlockingLoader } from "./BlockingLoader";
 import { MarketPicker } from "./MarketPicker";
 import { DEFAULT_MARKETS, type MarketSelection } from "@/lib/markets";
 
@@ -380,7 +381,7 @@ export default function Home() {
     }
     const w = await window.documentPictureInPicture.requestWindow({ width: 400, height: 620 });
     copyStyles(w);
-    w.document.title = "Pronósticos IA";
+    w.document.title = "ProPicksAI";
     w.addEventListener("pagehide", () => setPip(null));
     setPip(w);
   }
@@ -390,7 +391,7 @@ export default function Home() {
   const floatPanel = (
     <div className="float">
       <div className="row">
-        <div className="brand">Pronósticos <span>IA</span></div>
+        <div className="brand">ProPicks<span>AI</span></div>
         <span className="small muted" style={{ marginLeft: "auto" }}>{stream ? "● compartiendo" : "sin pantalla"}</span>
       </div>
       {!stream && (
@@ -440,7 +441,7 @@ export default function Home() {
   return (
     <div className="wrap">
       <div className="top">
-        <div className="brand">Pronósticos <span>IA</span></div>
+        <div className="brand">ProPicks<span>AI</span></div>
         <div className="tabs">
           <button className={`btn ${tab === "partidos" ? "on" : ""}`} onClick={() => setTab("partidos")}>Partidos</button>
           <button className={`btn ${tab === "parlay" ? "on" : ""}`} onClick={() => setTab("parlay")}>
@@ -761,6 +762,11 @@ export default function Home() {
         Las probabilidades son estimaciones, no garantías. Apuesta solo lo que puedas perder. +18.
       </div>
 
+      <BlockingLoader
+        show={busy || parlayBusy}
+        title={parlayBusy ? `Armando tu parlay (${legs.length} partido${legs.length === 1 ? "" : "s"})` : "La IA está analizando"}
+        detail={parlayBusy ? "Analizando cada partido y combinando las apuestas" : (selected?.title ?? undefined)}
+      />
       {pip && createPortal(floatPanel, pip.document.body)}
       <LoginModal
         open={loginOpen}

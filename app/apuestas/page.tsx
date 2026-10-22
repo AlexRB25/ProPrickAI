@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { SPORTS } from "@/lib/espn";
 import { authFetch, supabase } from "@/lib/supabase-browser";
 import { LoginModal, useSession } from "../Auth";
@@ -27,15 +27,18 @@ export default function Apuestas() {
   const [hayMas, setHayMas] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const reqId = useRef(0);
 
   const load = useCallback(
     async (p: number) => {
+      const mine = ++reqId.current;
       setLoading(true);
       setError("");
       try {
         const q = new URLSearchParams({ tipo, sport, orden, page: String(p) });
         const res = await authFetch(`/api/apuestas?${q}`, { cache: "no-store" });
         const d = await res.json();
+        if (mine !== reqId.current) return; // llegó tarde: ya se pidió otra pestaña o filtro
         if (!res.ok) throw new Error(d.error ?? `Error ${res.status}`);
         setItems((prev) => (p === 0 ? d.items : [...prev, ...d.items]));
         setHayMas(d.hayMas);
@@ -43,13 +46,14 @@ export default function Apuestas() {
       } catch (e) {
         setError((e as Error).message);
       } finally {
-        setLoading(false);
+        if (mine === reqId.current) setLoading(false);
       }
     },
     [tipo, sport, orden],
   );
 
   useEffect(() => {
+    setItems([]);
     load(0);
   }, [load, session?.user.id]);
 
@@ -58,7 +62,7 @@ export default function Apuestas() {
   return (
     <div className="wrap">
       <div className="top">
-        <a className="brand" href="/" style={{ textDecoration: "none", color: "inherit" }}>Pronósticos <span>IA</span></a>
+        <a className="brand" href="/" style={{ textDecoration: "none", color: "inherit" }}>ProPicks<span>AI</span></a>
         <div className="tabs">
           <a className="btn" href="/">← Volver</a>
           <a className="btn" href="/efectividad">📊 Efectividad</a>
@@ -96,7 +100,7 @@ export default function Apuestas() {
 
       <div className="cards">
         {items.map((it) =>
-          tipo === "individual" ? (
+          !Array.isArray(it.piernas) ? (
             <a key={it.id} className="bet-card" href={`/apuestas/pick/${it.id}`}>
               <div className="small muted">{deporte(it.sport)} · {it.league_name} · {fechaCorta(it.game_date)}</div>
               <div className="small">{it.title}</div>
@@ -117,7 +121,7 @@ export default function Apuestas() {
             </a>
           ) : (
             <a key={it.id} className="bet-card" href={`/apuestas/parlay/${it.id}`}>
-              <div className="small muted">{it.sports.map(deporte).join(" · ")} · desde {fechaCorta(it.first_game)}</div>
+              <div className="small muted">{(it.sports ?? []).map(deporte).join(" · ")} · desde {fechaCorta(it.first_game)}</div>
               <div className="pick-head">
                 <div>
                   <div className="small muted">Parlay {it.tipo === "Valor" ? "de valor" : "seguro"}</div>
@@ -127,7 +131,7 @@ export default function Apuestas() {
               </div>
               <ol className="reasons small" style={{ margin: 0 }}>
                 {it.piernas.slice(0, 4).map((l: any, i: number) => (
-                  <li key={i}><b>{l.selecciones.map((s: any) => s.seleccion).join(" + ")}</b> <span className="muted">· {l.partido}</span></li>
+                  <li key={i}><b>{(l.selecciones ?? []).map((s: any) => s.seleccion).join(" + ")}</b> <span className="muted">· {l.partido}</span></li>
                 ))}
                 {it.piernas.length > 4 && <li className="muted">y {it.piernas.length - 4} más…</li>}
               </ol>

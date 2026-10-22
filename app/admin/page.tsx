@@ -447,7 +447,7 @@ export default function Admin() {
   return (
     <div className="wrap">
       <div className="top">
-        <a className="brand" href="/" style={{ textDecoration: "none", color: "inherit" }}>Pronósticos <span>IA</span> · Admin</a>
+        <a className="brand" href="/" style={{ textDecoration: "none", color: "inherit" }}>ProPicks<span>AI</span> · Admin</a>
         <div className="tabs">
           {(["resumen", "usuarios", "consultas", "bugs", "precios"] as Tab[]).map((t) => (
             <button key={t} className={`btn ${tab === t ? "on" : ""}`} onClick={() => setTab(t)}>

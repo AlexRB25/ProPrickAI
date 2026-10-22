@@ -5,6 +5,7 @@ import type { CacheInfo, Winner } from "@/lib/ai";
 import type { Accion } from "@/lib/billing";
 import { sportInfo, type Game } from "@/lib/espn";
 import { authFetch } from "@/lib/supabase-browser";
+import { BlockingLoader } from "./BlockingLoader";
 
 type Resultado = Winner & { fecha: string; sport: string; liga: string };
 
@@ -68,6 +69,7 @@ export function GanadoresPanel({
 
   return (
     <div className="stack">
+      <BlockingLoader show={busy} title={`Buscando ganadores de ${legs.length} partido${legs.length === 1 ? "" : "s"}`} detail="Ordenándolos del más seguro al menos seguro" />
       <div className="card stack">
         <div className="row">
           <h2 style={{ margin: 0 }}>🏆 ¿Quién gana? ({legs.length})</h2>

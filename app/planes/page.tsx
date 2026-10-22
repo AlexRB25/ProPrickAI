@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { authFetch, supabase } from "@/lib/supabase-browser";
 import { LoginModal, useSession } from "../Auth";
+import { BlockingLoader } from "../BlockingLoader";
 import { money, useAccount, type Plan } from "../useAccount";
 
 const ACCIONES: Record<string, string> = {
@@ -109,7 +110,7 @@ export default function Planes() {
   return (
     <div className="wrap">
       <div className="top">
-        <a className="brand" href="/" style={{ textDecoration: "none", color: "inherit" }}>Pronósticos <span>IA</span></a>
+        <a className="brand" href="/" style={{ textDecoration: "none", color: "inherit" }}>ProPicks<span>AI</span></a>
         <div className="tabs">
           <a className="btn" href="/">← Volver</a>
           {session ? (
@@ -274,6 +275,7 @@ export default function Planes() {
       )}
 
       <div className="disclaimer">Precios en dólares; Mercado Pago cobra en pesos al tipo de cambio indicado. Apuesta solo lo que puedas perder. +18.</div>
+      <BlockingLoader show={Boolean(busy)} quick title={busy === "cancel" ? "Cancelando tu suscripción…" : "Abriendo Mercado Pago…"} />
       <LoginModal open={loginOpen} onClose={() => setLoginOpen(false)} />
     </div>
   );

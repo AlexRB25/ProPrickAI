@@ -1,4 +1,4 @@
-# Pronósticos IA
+# ProPicksAI
 
 Web app de pronósticos con IA para más de 30 deportes y eventos. Con calendario automático de ESPN: fútbol (20 ligas), NFL/NCAA/CFL/UFL, MLB, NBA/WNBA/NCAA/FIBA, tenis ATP/WTA, NHL, UFC/PFL, F1/NASCAR/IndyCar, golf PGA/LPGA, rugby, NRL, AFL, voleibol, lacrosse y hockey sobre césped. El resto (box, eSports, snooker, dardos, caballos, galgos, ciclismo, política, etc.) se agrega como evento manual y la IA lo investiga en la web.
 

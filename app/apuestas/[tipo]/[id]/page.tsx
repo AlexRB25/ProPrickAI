@@ -21,7 +21,7 @@ function LegsChart({ piernas }: { piernas: any[] }) {
         const gente = total ? Math.round((l.votos.si / total) * 100) : null;
         return (
           <div key={i} className="leg-chart">
-            <div className="small hist-title"><b>{i + 1}.</b> {l.selecciones.map((s: any) => s.seleccion).join(" + ")}</div>
+            <div className="small hist-title"><b>{i + 1}.</b> {(l.selecciones ?? []).map((s: any) => s.seleccion).join(" + ")}</div>
             <div className="hbar" title={`${gente == null ? "Sin votos" : `${gente}% de ${total} votos dice que entra`} · IA: ${l.probabilidad}%`}>
               <div style={{ width: `${gente ?? 0}%`, background: "var(--s1)" }} />
               <i className="mark" style={{ left: `${l.probabilidad}%` }} />
@@ -104,7 +104,7 @@ export default function Detalle() {
   return (
     <div className="wrap">
       <div className="top">
-        <a className="brand" href="/" style={{ textDecoration: "none", color: "inherit" }}>Pronósticos <span>IA</span></a>
+        <a className="brand" href="/" style={{ textDecoration: "none", color: "inherit" }}>ProPicks<span>AI</span></a>
         <div className="tabs">
           <a className="btn" href="/apuestas">← Apuestas</a>
           {session ? (
@@ -147,7 +147,7 @@ export default function Detalle() {
                 </>
               ) : (
                 <>
-                  <div className="small muted">{a.sports.map(deporte).join(" · ")} · desde {fechaCorta(a.first_game)}</div>
+                  <div className="small muted">{(a.sports ?? []).map(deporte).join(" · ")} · desde {fechaCorta(a.first_game)}</div>
                   <div className="pick-head">
                     <div>
                       <div className="small muted">Parlay {a.tipo === "Valor" ? "de valor" : "seguro"}</div>
@@ -165,8 +165,8 @@ export default function Detalle() {
                         <div className="small muted">{deporte(l.sport)} · {l.partido} · {fechaCorta(l.game_date)}</div>
                         <div className="pick-head">
                           <div className="pick-sel" style={{ fontSize: 15 }}>
-                            {i + 1}. {l.selecciones.map((s: any) => s.seleccion).join(" + ")}
-                            {l.selecciones.length > 1 && <span className="tag" style={{ marginLeft: 6 }}>Mismo partido</span>}
+                            {i + 1}. {(l.selecciones ?? []).map((s: any) => s.seleccion).join(" + ")}
+                            {(l.selecciones ?? []).length > 1 && <span className="tag" style={{ marginLeft: 6 }}>Mismo partido</span>}
                           </div>
                           <div style={{ fontWeight: 700 }}>{l.probabilidad}%</div>
                         </div>

@@ -22,7 +22,7 @@ export async function POST(req: Request) {
       items: [
         {
           id: pack.data.id,
-          title: `Pronósticos IA · ${pack.data.name}`,
+          title: `ProPicksAI · ${pack.data.name}`,
           quantity: 1,
           unit_price: chargeAmount(Number(pack.data.price_usd)),
           currency_id: chargeCurrency(),
