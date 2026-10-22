@@ -11,6 +11,8 @@ const ACCIONES: Record<string, string> = {
   analisis_cache: "Análisis que ya estaba en el caché",
   parlay_partido: "Parlay: cada partido nuevo",
   parlay_cache: "Parlay: cada partido en caché",
+  ganador_partido: "Ganadores: cada partido nuevo",
+  ganador_cache: "Ganadores: cada partido en caché",
   captura: "Captura de pantalla (ventana flotante)",
 };
 

@@ -26,6 +26,7 @@ function PayError({ text }: { text: string }) {
 import { buildParlays, comboMaxSize, MAX_APUESTAS, type GameOptions } from "@/lib/parlay";
 import { AnalysisView } from "./AnalysisView";
 import { ParlayView } from "./ParlayView";
+import { GanadoresPanel } from "./GanadoresPanel";
 import { MarketPicker } from "./MarketPicker";
 import { DEFAULT_MARKETS, type MarketSelection } from "@/lib/markets";
 
@@ -167,7 +168,9 @@ function Loading({ text }: { text: string }) {
 }
 
 export default function Home() {
-  const [tab, setTab] = useState<"partidos" | "parlay" | "pantalla">("partidos");
+  const [tab, setTab] = useState<"partidos" | "parlay" | "ganadores" | "pantalla">("partidos");
+  // Parlay y Ganadores comparten el boleto de partidos.
+  const boletoTab = tab === "parlay" || tab === "ganadores";
   const { session, recovery, endRecovery } = useSession();
   const { account, setCredits } = useAccount(session);
   const tarifas = account?.tarifas;
@@ -424,7 +427,7 @@ export default function Home() {
     saveManual([g, ...manualEvents].slice(0, 50));
     setMEvento("");
     setMNotas("");
-    if (tab === "parlay") toggleLeg(g);
+    if (boletoTab) toggleLeg(g);
     else setSelected(g);
   }
 
@@ -443,6 +446,7 @@ export default function Home() {
           <button className={`btn ${tab === "parlay" ? "on" : ""}`} onClick={() => setTab("parlay")}>
             Armar parlay{legs.length > 0 ? ` (${legs.length})` : ""}
           </button>
+          <button className={`btn ${tab === "ganadores" ? "on" : ""}`} onClick={() => setTab("ganadores")}>🏆 Ganadores</button>
           <button className={`btn ${tab === "pantalla" ? "on" : ""}`} onClick={() => setTab("pantalla")}>Ventana flotante</button>
           <a className="btn" href="/apuestas">🗳️ Apuestas</a>
           <a className="btn" href="/efectividad">📊 Efectividad</a>
@@ -492,7 +496,7 @@ export default function Home() {
                   </div>
                   <input className="field" placeholder="Momios o líneas que viste (opcional)" value={mNotas} onChange={(e) => setMNotas(e.target.value)} />
                   <button className="btn primary" disabled={!mEvento.trim()} onClick={addManual}>
-                    {tab === "parlay" ? "Agregar al boleto" : "Agregar y analizar"}
+                    {boletoTab ? "Agregar al boleto" : "Agregar y analizar"}
                   </button>
                 </div>
               </details>
@@ -500,7 +504,7 @@ export default function Home() {
 
             <div className="card">
               <h2>Próximos eventos</h2>
-              {tab === "parlay" && (
+              {boletoTab && (
                 <div className="small muted" style={{ marginBottom: 8 }}>
                   Toca un partido para agregarlo al boleto. Puedes cambiar de deporte y liga y seguir agregando.
                 </div>
@@ -511,15 +515,15 @@ export default function Home() {
               <div className="games">
                 {shownGames.map((g) => {
                   const inParlay = legIds.has(g.id);
-                  const isSel = tab === "parlay" ? inParlay : selected?.id === g.id;
+                  const isSel = boletoTab ? inParlay : selected?.id === g.id;
                   return (
                     <div
                       key={g.id}
                       role="button"
                       tabIndex={0}
                       className={`game ${isSel ? "sel" : ""}`}
-                      onClick={() => (tab === "parlay" ? toggleLeg(g) : setSelected(g))}
-                      onKeyDown={(e) => e.key === "Enter" && (tab === "parlay" ? toggleLeg(g) : setSelected(g))}
+                      onClick={() => (boletoTab ? toggleLeg(g) : setSelected(g))}
+                      onKeyDown={(e) => e.key === "Enter" && (boletoTab ? toggleLeg(g) : setSelected(g))}
                     >
                       {g.kind === "field" ? (
                         <div className="stack" style={{ gap: 4, minWidth: 0 }}>
@@ -549,7 +553,7 @@ export default function Home() {
                               toggleLeg(g);
                             }}
                           >
-                            {inParlay ? "✓ En parlay" : "+ Parlay"}
+                            {inParlay ? "✓ En boleto" : "+ Boleto"}
                           </button>
                         )}
                         {g.manual && (
@@ -594,7 +598,17 @@ export default function Home() {
           </div>
         )}
 
-        {tab === "parlay" ? (
+        {tab === "ganadores" ? (
+          <GanadoresPanel
+            legs={legs}
+            onRemove={toggleLeg}
+            onClear={() => saveLegs([])}
+            tarifas={tarifas}
+            logged={Boolean(session)}
+            onNeedLogin={() => setLoginOpen(true)}
+            onCredits={setCredits}
+          />
+        ) : tab === "parlay" ? (
           <div className="stack">
             <div className="card stack">
               <div className="row">

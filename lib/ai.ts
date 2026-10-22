@@ -373,3 +373,74 @@ export async function analyzeParlayGames(
   }));
   return { juegos, advertencias: parsed.advertencias ?? [], fuentes: res.fuentes.slice(0, 15), modelo: res.model, costo_usd: res.costo };
 }
+
+// ---------- Ganadores (tipo quiniela) ----------
+
+const WINNERS_SYSTEM = `Eres un analista deportivo que pronostica SOLO quién gana cada partido o evento, en español de México.
+
+Para cada evento que te doy (con su id):
+1. Busca lo justo en la web: lesiones o bajas importantes, forma reciente y momio actual. Si te doy "Datos reales de los últimos partidos", úsalos y no los busques.
+2. Decide quién gana y con qué probabilidad, con honestidad: parte del momio de la casa sin margen y muévete solo con evidencia concreta (no más de 8 puntos sin una razón fuerte). Nunca pases de 90%.
+3. "ganador" es el equipo o jugador con más probabilidad de ganar. En fútbol soccer NO elijas el empate como ganador: elige al equipo más probable y da aparte la probabilidad de empate. En torneos con muchos participantes (golf, carreras) "ganador" es el favorito y su probabilidad será baja.
+4. "probabilidades": local, empate (0 si no existe en ese deporte) y visitante; deben sumar 100. En torneos usa solo "ganador".
+5. "razon": una o dos frases concretas, con datos. Nunca inventes lesiones ni estadísticas.
+6. "confianza": "alta", "media" o "baja" según qué tan clara es la diferencia y qué tan buenos son los datos.
+
+Sé breve. Al final escribe EXACTAMENTE este formato entre <json> y </json>:
+<json>
+{
+  "juegos": [
+    {
+      "id": "id tal como te lo di",
+      "partido": "Atlas vs América",
+      "ganador": "América",
+      "probabilidad": 58,
+      "probabilidades": { "local": 18, "empate": 24, "visitante": 58 },
+      "cuota": "-105",
+      "razon": "frase con datos",
+      "confianza": "media"
+    }
+  ],
+  "advertencias": ["dato faltante o riesgo"]
+}
+</json>`;
+
+export interface Winner {
+  id: string;
+  partido: string;
+  ganador: string;
+  probabilidad: number;
+  probabilidades: { local: number; empate: number; visitante: number } | null;
+  cuota: string;
+  razon: string;
+  confianza: "alta" | "media" | "baja";
+}
+
+export async function analyzeWinners(games: Game[]) {
+  const forms = await pool(games.map((g) => () => recentForm(g, 3).catch(() => "")), 3);
+  const today = new Date().toLocaleString("es-MX", { dateStyle: "full", timeStyle: "short", timeZone: "America/Mexico_City" });
+  const text = [
+    `Hoy es ${today} (hora del centro de México).`,
+    ...games.map((g, i) => `### Evento ${i + 1} (id: ${g.id})\n${describeGame(g)}${forms[i] ? `\n${forms[i]}` : ""}`),
+  ].join("\n\n");
+
+  // Una búsqueda por evento alcanza para lesiones y momio; con tope. Medido: ~US$0.04 por partido.
+  const res = await runClaude(WINNERS_SYSTEM, [{ type: "text", text }], Math.min(25, games.length + 2));
+  const parsed = extractJson<{ juegos?: Partial<Winner>[]; advertencias?: string[] }>(res.text);
+  if (!parsed?.juegos?.length) throw new Error("La IA no devolvió pronósticos legibles. Intenta de nuevo.");
+
+  const juegos: Winner[] = parsed.juegos.map((j) => {
+    const p = j.probabilidades;
+    return {
+      id: String(j.id ?? ""),
+      partido: String(j.partido ?? ""),
+      ganador: String(j.ganador ?? ""),
+      probabilidad: clampPct(j.probabilidad),
+      probabilidades: p && typeof p === "object" ? { local: Number(p.local) || 0, empate: Number(p.empate) || 0, visitante: Number(p.visitante) || 0 } : null,
+      cuota: String(j.cuota ?? ""),
+      razon: String(j.razon ?? ""),
+      confianza: j.confianza === "alta" || j.confianza === "baja" ? j.confianza : "media",
+    };
+  });
+  return { juegos, advertencias: parsed.advertencias ?? [], modelo: res.model, costo_usd: res.costo };
+}

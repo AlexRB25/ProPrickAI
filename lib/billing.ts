@@ -1,7 +1,15 @@
 // Créditos, acceso por suscripción e historial de consultas. Solo servidor.
 import { db, type User } from "./server";
 
-export type Accion = "analisis" | "analisis_extendido" | "analisis_cache" | "parlay_partido" | "parlay_cache" | "captura";
+export type Accion =
+  | "analisis"
+  | "analisis_extendido"
+  | "analisis_cache"
+  | "parlay_partido"
+  | "parlay_cache"
+  | "ganador_partido"
+  | "ganador_cache"
+  | "captura";
 
 const DEFAULT_TARIFAS: Record<Accion, number> = {
   analisis: 15,
@@ -9,6 +17,8 @@ const DEFAULT_TARIFAS: Record<Accion, number> = {
   analisis_cache: 3,
   parlay_partido: 10,
   parlay_cache: 2,
+  ganador_partido: 3,
+  ganador_cache: 1,
   captura: 15,
 };
 
@@ -61,7 +71,7 @@ export async function refund(user: User, creditos: number, ref: string): Promise
 
 export async function logConsulta(c: {
   userId: string | null;
-  tipo: "analisis" | "parlay" | "captura" | "calificacion";
+  tipo: "analisis" | "parlay" | "ganadores" | "captura" | "calificacion";
   titulo: string;
   creditos: number;
   costo: number;

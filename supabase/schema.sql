@@ -79,6 +79,8 @@ insert into public.tarifas (accion, creditos, descripcion) values
   ('analisis_cache', 3, 'Análisis que ya estaba en el caché'),
   ('parlay_partido', 10, 'Parlay: cada partido analizado nuevo'),
   ('parlay_cache', 2, 'Parlay: cada partido que ya estaba en el caché'),
+  ('ganador_partido', 3, 'Ganadores: cada partido analizado nuevo'),
+  ('ganador_cache', 1, 'Ganadores: cada partido que ya estaba en el caché'),
   ('captura', 15, 'Análisis de captura de pantalla (ventana flotante)')
 on conflict (accion) do nothing;
 
@@ -308,6 +310,13 @@ create table if not exists public.comentarios (
   created_at timestamptz not null default now()
 );
 create index if not exists comentarios_target_idx on public.comentarios (target_type, target_id, created_at desc);
+
+-- ---------- Tipos agregados después (para bases creadas con una versión anterior de este archivo) ----------
+alter table public.analyses drop constraint if exists analyses_kind_check;
+alter table public.analyses add constraint analyses_kind_check check (kind in ('partido', 'parlay', 'ganador'));
+alter table public.consultas drop constraint if exists consultas_tipo_check;
+alter table public.consultas add constraint consultas_tipo_check
+  check (tipo in ('analisis', 'parlay', 'ganadores', 'captura', 'calificacion'));
 
 -- ---------- Limpieza de la versión anterior (límite diario) ----------
 drop function if exists public.use_quota(uuid, int);

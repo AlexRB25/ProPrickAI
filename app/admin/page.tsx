@@ -283,7 +283,7 @@ function Consultas() {
   return (
     <div className="stack">
       <div className="row" style={{ gap: 6 }}>
-        {["", "analisis", "parlay", "captura", "calificacion"].map((t) => (
+        {["", "analisis", "parlay", "ganadores", "captura", "calificacion"].map((t) => (
           <button key={t} className={`mini ${tipo === t ? "on" : ""}`} style={{ marginTop: 0 }} onClick={() => setTipo(t)}>{t || "todas"}</button>
         ))}
       </div>

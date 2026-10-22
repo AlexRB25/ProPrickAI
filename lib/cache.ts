@@ -68,6 +68,10 @@ export function partidoKey(g: Game, marketIds: string[], question: string) {
   return `partido|${gameKey(g)}|${[...marketIds].sort().join(",")}|${question.trim() ? sha(norm(question)) : "-"}`;
 }
 
+export function ganadorKey(g: Game) {
+  return `ganador|${gameKey(g)}`;
+}
+
 export function parlayKey(g: Game, marketIds: string[], comboMax: number) {
   return `parlay|${gameKey(g)}|${[...marketIds].sort().join(",")}|c${comboMax}`;
 }
@@ -92,7 +96,7 @@ export async function getCached<T>(key: string): Promise<Cached<T> | null> {
 
 export async function putAnalysis(opts: {
   key: string;
-  kind: "partido" | "parlay";
+  kind: "partido" | "parlay" | "ganador";
   game: Game;
   result: unknown;
   model: string;

@@ -34,7 +34,7 @@ export async function GET(req: Request) {
 
   const cs = consultas.data ?? [];
   const costo = cs.reduce((n, c) => n + Number(c.costo_usd), 0);
-  const porTipo = ["analisis", "parlay", "captura", "calificacion"].map((tipo) => {
+  const porTipo = ["analisis", "parlay", "ganadores", "captura", "calificacion"].map((tipo) => {
     const rows = cs.filter((c) => c.tipo === tipo && c.ok);
     const nuevas = rows.filter((c) => !c.cache);
     const cred = rows.reduce((n, c) => n + c.creditos, 0);

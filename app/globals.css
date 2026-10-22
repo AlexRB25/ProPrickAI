@@ -201,3 +201,5 @@ tr.clickable:hover td { background: var(--panel-2); }
 .mark-key { display: inline-block; width: 2px !important; height: 12px !important; background: var(--text) !important; margin: 0 6px 0 4px; vertical-align: -2px; border-radius: 0 !important; }
 .comment { border-top: 1px solid var(--line); padding-top: 8px; }
 .comment.hidden { opacity: .5; }
+.pick.winner { cursor: pointer; }
+.pick.winner:hover { border-color: var(--muted); }
