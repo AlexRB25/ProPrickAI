@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { tallies, type Target } from "@/lib/apuestas";
+import { hasAccess } from "@/lib/billing";
 import { authUser, db, dbConfigured, fail } from "@/lib/server";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -10,6 +11,7 @@ export async function POST(req: Request) {
   const user = await authUser(req);
   if (!user) return fail("Entra con tu cuenta para votar.", 401);
   if (user.blocked) return fail("Tu cuenta está bloqueada.", 403);
+  if (!(await hasAccess(user))) return fail("Votar y comentar es para suscriptores.", 402);
 
   const b = await req.json().catch(() => null);
   const type: Target = b?.target_type === "parlay" ? "parlay" : "pick";

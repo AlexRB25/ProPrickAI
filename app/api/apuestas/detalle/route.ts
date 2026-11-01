@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 import { myVotes, nombrePublico, parlayEstado, pickStatuses, tallies, type Target } from "@/lib/apuestas";
 import { norm } from "@/lib/cache";
+import { hasAccess } from "@/lib/billing";
+import type { Game } from "@/lib/espn";
+import { liveStatus } from "@/lib/live";
 import { authUser, db, dbConfigured, fail } from "@/lib/server";
 
 export const dynamic = "force-dynamic";
@@ -15,6 +18,8 @@ export async function GET(req: Request) {
   const id = q.get("id") ?? "";
   if (!UUID.test(id)) return fail("Apuesta inválida");
   const user = await authUser(req);
+  if (!user) return NextResponse.json({ error: "Entra con tu cuenta para ver las apuestas.", gate: "login" }, { status: 401 });
+  if (!(await hasAccess(user))) return NextResponse.json({ error: "Esta sección es para suscriptores.", gate: "suscripcion" }, { status: 402 });
 
   const [comentarios, votos, mio] = await Promise.all([
     db().from("comentarios").select("id, user_id, texto, oculto, created_at").eq("target_type", tipo).eq("target_id", id).order("created_at", { ascending: false }).limit(200),
@@ -32,7 +37,7 @@ export async function GET(req: Request) {
   if (tipo === "pick") {
     const { data: p } = await db()
       .from("picks")
-      .select("id, analysis_id, sport, league_name, title, game_date, mercado, seleccion, selecciones, probabilidad, cuota, cuota_estimada, status, resultado, origen")
+      .select("id, analysis_id, game, sport, league_name, title, game_date, mercado, seleccion, selecciones, probabilidad, cuota, cuota_estimada, status, resultado, origen")
       .eq("id", id)
       .maybeSingle();
     if (!p) return fail("No existe esa apuesta", 404);
@@ -50,19 +55,29 @@ export async function GET(req: Request) {
         if (opt?.razon) razones = [opt.razon];
       }
     }
-    return NextResponse.json({ ...base, tipo, apuesta: { ...p, analysis_id: undefined, razones, resumen, abierta: Date.parse(p.game_date) > Date.now() } });
+    const g = p.game as Game;
+    const live = Date.parse(p.game_date) <= Date.now() ? ((await liveStatus([g])).get(g.id) ?? null) : null;
+    return NextResponse.json({ ...base, tipo, apuesta: { ...p, game: undefined, analysis_id: undefined, razones, resumen, live, abierta: Date.parse(p.game_date) > Date.now() } });
   }
 
   const { data: pl } = await db().from("parlays").select("*").eq("id", id).maybeSingle();
   if (!pl) return fail("No existe ese parlay", 404);
   const pickIds = pl.pick_ids as string[];
-  const [st, legVotes, legMine] = await Promise.all([pickStatuses(pickIds), tallies("pick", pickIds), myVotes(user?.id ?? null, "pick", pickIds)]);
+  const [st, legVotes, legMine, legPicks] = await Promise.all([
+    pickStatuses(pickIds),
+    tallies("pick", pickIds),
+    myVotes(user?.id ?? null, "pick", pickIds),
+    db().from("picks").select("id, game").in("id", pickIds),
+  ]);
+  const gameOf = new Map((legPicks.data ?? []).map((p) => [p.id, p.game as Game]));
+  const live = await liveStatus([...gameOf.values()].filter((g) => Date.parse(g.date) <= Date.now()));
   const piernas = (pl.piernas as { pick_id: string; game_date: string }[]).map((l) => ({
     ...l,
     estado: st.get(l.pick_id) ?? "pendiente",
     votos: legVotes.get(l.pick_id)!,
     miVoto: legMine.get(l.pick_id) ?? 0,
     abierta: Date.parse(l.game_date) > Date.now(),
+    live: gameOf.get(l.pick_id) ? (live.get(gameOf.get(l.pick_id)!.id) ?? null) : null,
   }));
   return NextResponse.json({
     ...base,

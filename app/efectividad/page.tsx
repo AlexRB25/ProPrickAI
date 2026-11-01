@@ -7,7 +7,21 @@ import { authFetch, supabase, supabaseConfigured } from "@/lib/supabase-browser"
 import { LoginModal, useSession } from "../Auth";
 import { BlockingLoader } from "../BlockingLoader";
 
+type Periodo = "todo" | "jornada" | "jornadas2" | "mes" | "rango";
+
+const PERIODOS: { id: Periodo; label: string }[] = [
+  { id: "jornada", label: "Última jornada" },
+  { id: "jornadas2", label: "Últimas 2 jornadas" },
+  { id: "mes", label: "Últimos 30 días" },
+  { id: "todo", label: "Toda la temporada" },
+  { id: "rango", label: "Fechas…" },
+];
+
+const dia = (iso: string) => new Date(iso).toLocaleDateString("es-MX", { weekday: "short", day: "numeric", month: "short", timeZone: "America/Mexico_City" });
+const rangoTxt = (a: string, b: string | null) => (b ? `del ${dia(a)} al ${dia(b)}` : `desde el ${dia(a)}`);
+
 interface Data {
+  periodo?: { desde: string | null; hasta: string | null };
   stats: Stats;
   picks: PickPublic[];
   hayMas: boolean;
@@ -116,6 +130,9 @@ export default function Efectividad() {
   const [sport, setSport] = useState("");
   const [league, setLeague] = useState("");
   const [status, setStatus] = useState<"" | Status>("");
+  const [periodo, setPeriodo] = useState<Periodo>("todo");
+  const [desde, setDesde] = useState("");
+  const [hasta, setHasta] = useState("");
   const [page, setPage] = useState(0);
   const [data, setData] = useState<Data | null>(null);
   const [list, setList] = useState<PickPublic[]>([]);
@@ -138,7 +155,7 @@ export default function Efectividad() {
       setLoading(true);
       setError("");
       try {
-        const q = new URLSearchParams({ sport, league, status, page: String(p) });
+        const q = new URLSearchParams({ sport, league, status, periodo, desde, hasta, page: String(p) });
         const res = await fetch(`/api/efectividad?${q}`, { cache: "no-store" });
         const d = await res.json();
         if (!res.ok) throw new Error(d.error ?? `Error ${res.status}`);
@@ -151,7 +168,7 @@ export default function Efectividad() {
         setLoading(false);
       }
     },
-    [sport, league, status],
+    [sport, league, status, periodo, desde, hasta],
   );
 
   useEffect(() => {
@@ -196,7 +213,7 @@ export default function Efectividad() {
 
       <h1 style={{ fontSize: 22, margin: "0 0 4px" }}>📊 Efectividad</h1>
       <div className="muted small" style={{ marginBottom: 14 }}>
-        Todos los picks que ha dado la IA y cómo terminaron. Se califican solos cuando acaba cada partido.
+        Todos los picks que ha dado la IA y cómo terminaron. Se califican solos cuando acaba cada partido. Una jornada es una semana de lunes a domingo.
       </div>
 
       <div className="card row" style={{ marginBottom: 14 }}>
@@ -208,6 +225,20 @@ export default function Efectividad() {
           <option value="">Todas las ligas</option>
           {data?.filtros.leagues.map((l) => <option key={l} value={l}>{l}</option>)}
         </select>
+        <div className="row" style={{ gap: 6, width: "100%" }}>
+          <span className="small muted">Periodo:</span>
+          {PERIODOS.map((p) => (
+            <button key={p.id} className={`mini ${periodo === p.id ? "on" : ""}`} style={{ marginTop: 0 }} onClick={() => setPeriodo(p.id)}>{p.label}</button>
+          ))}
+          {periodo === "rango" && (
+            <>
+              <input className="field" type="date" style={{ width: "auto" }} value={desde} onChange={(e) => setDesde(e.target.value)} aria-label="Desde" />
+              <span className="small muted">a</span>
+              <input className="field" type="date" style={{ width: "auto" }} value={hasta} onChange={(e) => setHasta(e.target.value)} aria-label="Hasta" />
+            </>
+          )}
+          {data?.periodo?.desde && <span className="small muted">{rangoTxt(data.periodo.desde, data.periodo.hasta)}</span>}
+        </div>
         <div className="row" style={{ gap: 6 }}>
           {ESTADOS.map((e) => (
             <button key={e.id} className={`mini ${status === e.id ? "on" : ""}`} style={{ marginTop: 0 }} onClick={() => setStatus(e.id)}>{e.label}</button>

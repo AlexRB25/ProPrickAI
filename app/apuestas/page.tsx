@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { SPORTS } from "@/lib/espn";
 import { authFetch, supabase } from "@/lib/supabase-browser";
 import { LoginModal, useSession } from "../Auth";
-import { deporte, EstadoTag, fechaCorta, VoteBar, VoteButtons, type Estado, type Tally } from "./ui";
+import { deporte, EstadoTag, fechaCorta, LiveTag, VoteBar, VoteButtons, type Estado, type Tally } from "./ui";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 type Tipo = "individual" | "parlay";
@@ -27,18 +27,21 @@ export default function Apuestas() {
   const [hayMas, setHayMas] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [gate, setGate] = useState<"" | "login" | "suscripcion">("");
   const reqId = useRef(0);
 
   const load = useCallback(
-    async (p: number) => {
+    async (p: number, silent = false) => {
       const mine = ++reqId.current;
-      setLoading(true);
+      if (!silent) setLoading(true);
       setError("");
       try {
         const q = new URLSearchParams({ tipo, sport, orden, page: String(p) });
         const res = await authFetch(`/api/apuestas?${q}`, { cache: "no-store" });
         const d = await res.json();
         if (mine !== reqId.current) return; // llegó tarde: ya se pidió otra pestaña o filtro
+        setGate(d.gate ?? "");
+        if (d.gate) return setItems([]);
         if (!res.ok) throw new Error(d.error ?? `Error ${res.status}`);
         setItems((prev) => (p === 0 ? d.items : [...prev, ...d.items]));
         setHayMas(d.hayMas);
@@ -56,6 +59,15 @@ export default function Apuestas() {
     setItems([]);
     load(0);
   }, [load, session?.user.id]);
+
+  // Marcadores en vivo: se actualiza sola cada minuto mientras estás en la primera página.
+  useEffect(() => {
+    if (page !== 0 || gate) return;
+    const t = setInterval(() => {
+      if (document.visibilityState === "visible") load(0, true);
+    }, 60000);
+    return () => clearInterval(t);
+  }, [load, page, gate]);
 
   const update = (id: string, r: { votos: Tally; miVoto: number }) => setItems((l) => l.map((x) => (x.id === id ? { ...x, ...r } : x)));
 
@@ -76,7 +88,7 @@ export default function Apuestas() {
 
       <h1 style={{ fontSize: 22, margin: "0 0 4px" }}>🗳️ Apuestas de la comunidad</h1>
       <div className="muted small" style={{ marginBottom: 14 }}>
-        Todas las apuestas y parlays que la IA ha dado. Vota si crees que le entra y comenta; las votaciones cierran cuando empieza el partido.
+        Apuestas y parlays de la IA que todavía no terminan, con marcador en vivo. Vota si crees que le entra y comenta; las votaciones cierran cuando empieza el partido. Las terminadas pasan a <a href="/efectividad">Efectividad</a>.
       </div>
 
       <div className="card row" style={{ marginBottom: 14 }}>
@@ -95,8 +107,19 @@ export default function Apuestas() {
         </div>
       </div>
 
-      {error && <div className="err small" style={{ marginBottom: 12 }}>{error}</div>}
-      {!loading && !items.length && !error && <div className="muted">Todavía no hay apuestas aquí.</div>}
+      {gate && (
+        <div className="card stack" style={{ alignItems: "flex-start", marginBottom: 12 }}>
+          <h2 style={{ margin: 0 }}>🔒 Sección para suscriptores</h2>
+          <div className="muted">Las apuestas de la comunidad, los votos y los comentarios son parte de la suscripción.</div>
+          {gate === "login" ? (
+            <button className="btn primary" onClick={() => setLoginOpen(true)}>Entrar</button>
+          ) : (
+            <a className="btn primary" href="/planes">Ver planes</a>
+          )}
+        </div>
+      )}
+      {error && !gate && <div className="err small" style={{ marginBottom: 12 }}>{error}</div>}
+      {!loading && !gate && !items.length && !error && <div className="muted">No hay apuestas por jugarse ni en vivo con este filtro.</div>}
 
       <div className="cards">
         {items.map((it) =>
@@ -104,6 +127,7 @@ export default function Apuestas() {
             <a key={it.id} className="bet-card" href={`/apuestas/pick/${it.id}`}>
               <div className="small muted">{deporte(it.sport)} · {it.league_name} · {fechaCorta(it.game_date)}</div>
               <div className="small">{it.title}</div>
+              <LiveTag live={it.live} />
               <div className="pick-head">
                 <div>
                   <div className="small muted">{it.mercado}</div>
@@ -122,6 +146,7 @@ export default function Apuestas() {
           ) : (
             <a key={it.id} className="bet-card" href={`/apuestas/parlay/${it.id}`}>
               <div className="small muted">{(it.sports ?? []).map(deporte).join(" · ")} · desde {fechaCorta(it.first_game)}</div>
+              {it.enVivo > 0 && <span className="live">🔴 {it.enVivo} en vivo</span>}
               <div className="pick-head">
                 <div>
                   <div className="small muted">Parlay {it.tipo === "Valor" ? "de valor" : "seguro"}</div>
@@ -131,7 +156,7 @@ export default function Apuestas() {
               </div>
               <ol className="reasons small" style={{ margin: 0 }}>
                 {it.piernas.slice(0, 4).map((l: any, i: number) => (
-                  <li key={i}><b>{(l.selecciones ?? []).map((s: any) => s.seleccion).join(" + ")}</b> <span className="muted">· {l.partido}</span></li>
+                  <li key={i}><b>{(l.selecciones ?? []).map((s: any) => s.seleccion).join(" + ")}</b> <span className="muted">· {l.partido}</span>{l.estado !== "pendiente" && <> <EstadoTag estado={l.estado as Estado} /></>}<LiveTag live={l.live} inline /></li>
                 ))}
                 {it.piernas.length > 4 && <li className="muted">y {it.piernas.length - 4} más…</li>}
               </ol>

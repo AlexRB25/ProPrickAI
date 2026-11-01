@@ -93,3 +93,17 @@ export function VoteButtons({
     </div>
   );
 }
+
+export interface Live {
+  state: "pre" | "in" | "post";
+  detalle: string;
+  marcador: string;
+}
+
+/** "🔴 EN VIVO · Q3 7:21 · NE 14 - 21 CHI" mientras se juega; "Final" si ya acabó y no se ha calificado. */
+export function LiveTag({ live, inline = false }: { live?: Live | null; inline?: boolean }) {
+  if (!live || live.state === "pre") return null;
+  const enVivo = live.state === "in";
+  const texto = [enVivo ? "EN VIVO" : "Final", enVivo ? live.detalle : "", live.marcador].filter(Boolean).join(" · ");
+  return <span className={`live ${enVivo ? "" : "fin"} ${inline ? "inline" : ""}`}>{enVivo ? "🔴 " : "🏁 "}{texto}</span>;
+}

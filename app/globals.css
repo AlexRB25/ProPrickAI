@@ -211,3 +211,8 @@ tr.clickable:hover td { background: var(--panel-2); }
 .blocking-title { font-size: 20px; font-weight: 800; }
 .blocking-step { color: var(--accent); font-weight: 600; min-height: 1.4em; }
 @media (prefers-reduced-motion: reduce) { .big-spinner { animation-duration: 2.5s; } }
+
+/* Marcador en vivo */
+.live { display: inline-block; align-self: flex-start; font-size: 12px; font-weight: 700; color: #fca5a5; background: rgba(239, 68, 68, .12); border: 1px solid rgba(239, 68, 68, .45); border-radius: 99px; padding: 2px 9px; }
+.live.fin { color: var(--muted); background: transparent; border-color: var(--line); font-weight: 600; }
+.live.inline { margin-left: 6px; font-size: 11px; padding: 1px 7px; }

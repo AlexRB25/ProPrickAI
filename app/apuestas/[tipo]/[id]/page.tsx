@@ -4,7 +4,7 @@ import { useParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { authFetch, supabase } from "@/lib/supabase-browser";
 import { LoginModal, useSession } from "../../../Auth";
-import { deporte, EstadoTag, fechaCorta, VoteBar, VoteButtons, type Estado, type Tally } from "../../ui";
+import { deporte, EstadoTag, fechaCorta, LiveTag, VoteBar, VoteButtons, type Estado, type Tally } from "../../ui";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -42,6 +42,7 @@ export default function Detalle() {
   const [loginOpen, setLoginOpen] = useState(false);
   const [d, setD] = useState<any>(null);
   const [error, setError] = useState("");
+  const [gate, setGate] = useState("");
   const [texto, setTexto] = useState("");
   const [enviando, setEnviando] = useState(false);
   const [nombre, setNombre] = useState<string | null>(null);
@@ -52,6 +53,7 @@ export default function Detalle() {
     try {
       const res = await authFetch(`/api/apuestas/detalle?tipo=${tipo}&id=${id}`, { cache: "no-store" });
       const j = await res.json();
+      setGate(j.gate ?? "");
       if (!res.ok) throw new Error(j.error ?? `Error ${res.status}`);
       setD(j);
     } catch (e) {
@@ -115,7 +117,13 @@ export default function Detalle() {
         </div>
       </div>
 
-      {error && <div className="err small">{error}</div>}
+      {error && (
+        <div className="err small">
+          {gate ? "🔒 " : ""}{error}{" "}
+          {gate === "suscripcion" && <a href="/planes">Ver planes →</a>}
+          {gate === "login" && <button className="link" onClick={() => setLoginOpen(true)}>Entrar</button>}
+        </div>
+      )}
       {!a && !error && <div className="muted">Cargando…</div>}
 
       {a && (
@@ -126,6 +134,7 @@ export default function Detalle() {
                 <>
                   <div className="small muted">{deporte(a.sport)} · {a.league_name} · {fechaCorta(a.game_date)}</div>
                   <h2 style={{ margin: 0 }}>{a.title}</h2>
+                  <LiveTag live={a.live} />
                   <div className="pick-head">
                     <div>
                       <div className="small muted">{a.mercado}</div>
@@ -173,6 +182,7 @@ export default function Detalle() {
                         {l.razon && <div className="small muted">{l.razon}</div>}
                         <div className="row small" style={{ marginTop: 6 }}>
                           <EstadoTag estado={l.estado as Estado} />
+                          <LiveTag live={l.live} inline />
                           {l.cuota && <span className="tag">{l.cuota}{l.cuota_estimada ? "~" : ""}</span>}
                         </div>
                         <VoteBar votos={l.votos} compact />
