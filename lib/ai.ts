@@ -143,7 +143,7 @@ function clampPct(n: unknown): number {
   return Number.isFinite(x) ? Math.max(1, Math.min(99, Math.round(x))) : 50;
 }
 
-export async function analyze(input: AnalyzeInput): Promise<Analysis> {
+export async function analyze(input: AnalyzeInput, signal?: AbortSignal): Promise<Analysis> {
   const today = new Date().toLocaleString("es-MX", { dateStyle: "full", timeStyle: "short", timeZone: "America/Mexico_City" });
   const parts: string[] = [`Hoy es ${today} (hora del centro de México).`];
   if (input.game) {
@@ -163,7 +163,7 @@ export async function analyze(input: AnalyzeInput): Promise<Analysis> {
   }
   content.push({ type: "text", text: parts.join("\n\n") });
 
-  const { text, fuentes, model, costo } = await runClaude(SYSTEM, content, searchBudget(mercados?.ids));
+  const { text, fuentes, model, costo } = await runClaude(SYSTEM, content, searchBudget(mercados?.ids), EFFORT, signal);
 
   const parsed = extractJson<Omit<Analysis, "fuentes" | "modelo">>(text);
   if (!parsed) {
@@ -224,6 +224,8 @@ export async function runClaude(
   content: Anthropic.Beta.BetaContentBlockParam[],
   maxSearches: number,
   effort: Effort = EFFORT,
+  // Corta la llamada al llegar al límite de tiempo (Vercel corta la función a los 300 s).
+  signal?: AbortSignal,
 ) {
   const messages: Anthropic.Beta.BetaMessageParam[] = [{ role: "user", content }];
   let final: Anthropic.Beta.BetaMessage | null = null;
@@ -248,7 +250,7 @@ export async function runClaude(
             ]
           : undefined,
       messages,
-    });
+    }, { signal });
     final = await stream.finalMessage();
     costo += costOf(final);
     if (final.stop_reason !== "pause_turn") break;
@@ -325,7 +327,7 @@ Sé breve en el texto. Al final escribe EXACTAMENTE este formato entre <json> y 
 export async function analyzeParlayGames(
   games: Game[],
   seleccion?: MarketSelection,
-  opts: { sameGame?: boolean; maxLegs?: number; comboMax?: number } = {},
+  opts: { sameGame?: boolean; maxLegs?: number; comboMax?: number; signal?: AbortSignal } = {},
 ) {
   const sameGame = opts.sameGame !== false;
   const comboMax = opts.comboMax || comboMaxSize(games.length, Math.min(20, Math.max(2, Number(opts.maxLegs) || 4)));
@@ -346,7 +348,7 @@ export async function analyzeParlayGames(
   ].join("\n\n");
 
   // Búsquedas por partido según cuántos mercados de estadísticas se pidieron, con tope.
-  const res = await runClaude(PARLAY_SYSTEM, [{ type: "text", text }], Math.min(40, games.reduce((n, g) => n + Math.ceil(searchBudget(describeMarkets(g.sport, seleccion?.[g.sport]).ids) / 3), 2)));
+  const res = await runClaude(PARLAY_SYSTEM, [{ type: "text", text }], Math.min(40, games.reduce((n, g) => n + Math.ceil(searchBudget(describeMarkets(g.sport, seleccion?.[g.sport]).ids) / 3), 2)), EFFORT, opts.signal);
   const parsed = extractJson<{ juegos?: GameOptions[]; advertencias?: string[] }>(res.text);
   if (!parsed?.juegos?.length) throw new Error("La IA no devolvió opciones legibles. Intenta de nuevo.");
 
@@ -416,7 +418,7 @@ export interface Winner {
   confianza: "alta" | "media" | "baja";
 }
 
-export async function analyzeWinners(games: Game[]) {
+export async function analyzeWinners(games: Game[], signal?: AbortSignal) {
   const forms = await pool(games.map((g) => () => recentForm(g, 3).catch(() => "")), 3);
   const today = new Date().toLocaleString("es-MX", { dateStyle: "full", timeStyle: "short", timeZone: "America/Mexico_City" });
   const text = [
@@ -425,7 +427,7 @@ export async function analyzeWinners(games: Game[]) {
   ].join("\n\n");
 
   // Una búsqueda por evento alcanza para lesiones y momio; con tope. Medido: ~US$0.04 por partido.
-  const res = await runClaude(WINNERS_SYSTEM, [{ type: "text", text }], Math.min(25, games.length + 2));
+  const res = await runClaude(WINNERS_SYSTEM, [{ type: "text", text }], Math.min(25, games.length + 2), EFFORT, signal);
   const parsed = extractJson<{ juegos?: Partial<Winner>[]; advertencias?: string[] }>(res.text);
   if (!parsed?.juegos?.length) throw new Error("La IA no devolvió pronósticos legibles. Intenta de nuevo.");
 
@@ -444,3 +446,24 @@ export async function analyzeWinners(games: Game[]) {
   });
   return { juegos, advertencias: parsed.advertencias ?? [], modelo: res.model, costo_usd: res.costo };
 }
+
+// ---------- Tiempo ----------
+
+/** Vercel corta la función a los 300 s; dejamos margen para guardar resultados y devolver créditos. */
+export const LIMITE_MS = 270_000;
+
+/** Señal que cancela la IA cuando se acaba el tiempo de esta solicitud. */
+export const deadline = (inicio: number) => AbortSignal.timeout(Math.max(15_000, LIMITE_MS - (Date.now() - inicio)));
+
+/** Parte una lista en grupos de n. */
+export function grupos<T>(list: T[], n: number): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < list.length; i += n) out.push(list.slice(i, i + n));
+  return out;
+}
+
+/** ¿El error es porque se acabó el tiempo? */
+export const esTimeout = (e: unknown) => {
+  const name = (e as Error)?.name ?? "";
+  return name === "AbortError" || name === "TimeoutError" || e instanceof Anthropic.APIUserAbortError;
+};

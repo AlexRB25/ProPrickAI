@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { analyze, type Analysis, type AnalyzeInput } from "@/lib/ai";
+import { analyze, deadline, esTimeout, type Analysis, type AnalyzeInput } from "@/lib/ai";
 import { charge, getTarifas, hasAccess, logConsulta, refund, SIN_SUSCRIPCION, sinCreditos } from "@/lib/billing";
 import { getCached, partidoKey, putAnalysis, recordPicks, resolveGame } from "@/lib/cache";
 import type { Game } from "@/lib/espn";
@@ -15,6 +15,7 @@ const MAX_IMAGE = 6_000_000; // ~4.5 MB en base64
 const publico = (a: Analysis) => ({ ...a, costo_usd: undefined });
 
 export async function POST(req: Request) {
+  const inicio = Date.now();
   const user = await requireUser(req);
   if (user instanceof NextResponse) return user;
   if (!(await hasAccess(user))) return fail(SIN_SUSCRIPCION, 402);
@@ -58,7 +59,7 @@ export async function POST(req: Request) {
   const cobrado = user.isAdmin ? 0 : precio;
 
   try {
-    const a = await analyze({ ...body, game: game ?? undefined, question });
+    const a = await analyze({ ...body, game: game ?? undefined, question }, deadline(inicio));
     let creado = new Date().toISOString();
     if (key && game) {
       const saved = await putAnalysis({ key, kind: "partido", game, result: publico(a), model: a.modelo, userId: user.id });
@@ -79,7 +80,7 @@ export async function POST(req: Request) {
     await logConsulta({ userId: user.id, tipo, titulo, creditos: cobrado, costo: a.costo_usd ?? 0 });
     return NextResponse.json({ ...publico(a), cache: { hit: false, creado }, restantes: c.saldo } satisfies Analysis);
   } catch (e) {
-    const msg = aiErrorMessage(e);
+    const msg = esTimeout(e) ? "El análisis tardó demasiado (prueba con menos mercados)." : aiErrorMessage(e);
     await refund(user, cobrado, `${tipo}:${titulo}`);
     await logConsulta({ userId: user.id, tipo, titulo, creditos: 0, costo: 0, ok: false, error: msg });
     return fail(`${msg}${cobrado ? " No se te cobraron créditos." : ""}`, 500);

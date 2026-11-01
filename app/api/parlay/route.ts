@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
-import { analyzeParlayGames } from "@/lib/ai";
+import { analyzeParlayGames, deadline, esTimeout, grupos } from "@/lib/ai";
 import { charge, getTarifas, hasAccess, logConsulta, refund, SIN_SUSCRIPCION, sinCreditos } from "@/lib/billing";
 import { getCached, parlayKey, putAnalysis, recordPicks, resolveGame } from "@/lib/cache";
 import type { Game } from "@/lib/espn";
-import { describeMarkets, type MarketSelection } from "@/lib/markets";
+import { describeMarkets, isExtended, type MarketSelection } from "@/lib/markets";
 import { comboMaxSize, type GameOptions } from "@/lib/parlay";
 import { publishParlays } from "@/lib/publicar";
 import { aiErrorMessage, fail, requireUser } from "@/lib/server";
@@ -21,6 +21,7 @@ interface Entry {
 }
 
 export async function POST(req: Request) {
+  const inicio = Date.now();
   const user = await requireUser(req);
   if (user instanceof NextResponse) return user;
   if (!(await hasAccess(user))) return fail(SIN_SUSCRIPCION, 402);
@@ -68,26 +69,43 @@ export async function POST(req: Request) {
 
   const entries: (Entry | null)[] = hits.map((h) => h?.result ?? null);
   let costo = 0;
+  const avisos: string[] = [];
 
   if (pending.length) {
-    try {
-      const fresh = await analyzeParlayGames(
-        pending.map((p) => p.g),
-        mercados,
-        { sameGame, maxLegs, comboMax: comboMax || undefined },
-      );
-      costo = fresh.costo_usd ?? 0;
-      for (const { g, i } of pending) {
-        const juego = fresh.juegos.find((j) => j.id === g.id);
+    // En grupos chicos y al mismo tiempo: tarda lo que tarda un grupo, no la suma de todos
+    // (con muchos partidos y mercados, una sola llamada pasaba de los 300 s de Vercel).
+    const pesado = pending.some(({ g }) => isExtended(describeMarkets(g.sport, mercados?.[g.sport]).ids));
+    const signal = deadline(inicio);
+    const resultados = await Promise.all(
+      grupos(pending, pesado ? 2 : 3).map((grupo) =>
+        analyzeParlayGames(
+          grupo.map((p) => p.g),
+          mercados,
+          { sameGame, maxLegs, comboMax: comboMax || undefined, signal },
+        ).then(
+          (r) => ({ grupo, r, e: null as unknown }),
+          (e) => ({ grupo, r: null, e }),
+        ),
+      ),
+    );
+
+    for (const { grupo, r, e } of resultados) {
+      if (!r) {
+        avisos.push(esTimeout(e) ? `No alcanzó el tiempo para analizar: ${grupo.map((p) => p.g.title).join(", ")}.` : aiErrorMessage(e));
+        continue;
+      }
+      costo += r.costo_usd ?? 0;
+      for (const { g, i } of grupo) {
+        const juego = r.juegos.find((j) => j.id === g.id);
         if (!juego) continue;
-        const entry: Entry = { juego, advertencias: fresh.advertencias, fuentes: fresh.fuentes };
+        const entry: Entry = { juego, advertencias: r.advertencias, fuentes: r.fuentes };
         entries[i] = entry;
-        const saved = await putAnalysis({ key: keys[i], kind: "parlay", game: g, result: entry, model: fresh.modelo, userId: user.id });
+        const saved = await putAnalysis({ key: keys[i], kind: "parlay", game: g, result: entry, model: r.modelo, userId: user.id });
         await recordPicks(saved?.id ?? null, "parlay", g, [
           ...juego.opciones,
           ...(juego.combinadas ?? []).map((cb) => ({
             mercado: "Combinada",
-            seleccion: cb.selecciones.map((s) => s.seleccion).join(" + "),
+            seleccion: cb.selecciones.map((x) => x.seleccion).join(" + "),
             selecciones: cb.selecciones,
             probabilidad: cb.probabilidad,
             cuota: cb.cuota,
@@ -95,26 +113,34 @@ export async function POST(req: Request) {
           })),
         ]);
       }
-    } catch (e) {
-      const msg = aiErrorMessage(e);
-      await refund(user, cobrado, titulo);
-      await logConsulta({ userId: user.id, tipo: "parlay", titulo, creditos: 0, costo: 0, ok: false, error: msg });
-      return fail(`${msg}${cobrado ? " No se te cobraron créditos." : ""}`, 500);
     }
+  }
+
+  // Se cobra solo lo que se entregó: cada partido que quedó sin análisis se devuelve.
+  const sinAnalisis = pending.filter(({ i }) => !entries[i]);
+  const devolver = user.isAdmin ? 0 : sinAnalisis.length * tarifas.parlay_partido;
+  let devuelto = 0;
+  if (devolver > 0 && devolver < cobrado) {
+    await refund(user, devolver, `${titulo} (sin analizar: ${sinAnalisis.length})`);
+    devuelto = devolver;
+    c.saldo = c.saldo == null ? null : c.saldo + devolver;
+  }
+  if (sinAnalisis.length) {
+    avisos.unshift(`${sinAnalisis.length} partido(s) no se pudieron analizar${devolver ? ` y se te devolvieron ${devolver} créditos` : ""}. Intenta de nuevo con menos partidos o menos mercados.`);
   }
 
   // El id de un evento manual cambia por usuario: se devuelve con el id del boleto de quien pregunta.
   const juegos = entries.flatMap((e, i) => (e ? [{ ...e.juego, id: games[i].id }] : []));
   if (!juegos.length) {
-    await refund(user, cobrado, titulo);
-    await logConsulta({ userId: user.id, tipo: "parlay", titulo, creditos: 0, costo, ok: false, error: "Sin opciones legibles" });
-    return fail("La IA no devolvió opciones legibles. Intenta de nuevo; no se te cobraron créditos.", 500);
+    await refund(user, cobrado - devuelto, titulo);
+    await logConsulta({ userId: user.id, tipo: "parlay", titulo, creditos: 0, costo, ok: false, error: avisos.join(" ") || "Sin opciones legibles" });
+    return fail(`${avisos.slice(1).join(" ") || "La IA no devolvió opciones legibles."} Intenta con menos partidos o menos mercados; no se te cobraron créditos.`, 500);
   }
-  await logConsulta({ userId: user.id, tipo: "parlay", titulo, creditos: cobrado, costo, cache: pending.length === 0 });
+  await logConsulta({ userId: user.id, tipo: "parlay", titulo, creditos: cobrado - devuelto, costo, cache: pending.length === 0, ok: !sinAnalisis.length, error: sinAnalisis.length ? avisos.join(" ") : undefined });
   // Se publican en la sección Apuestas (los ya publicados no se repiten).
   const publicados = await publishParlays({ games, juegos, minLegs, maxLegs, sameGame, userId: user.id }).catch(() => 0);
 
-  const advertencias = [...new Set(entries.flatMap((e) => e?.advertencias ?? []))];
+  const advertencias = [...avisos, ...new Set(entries.flatMap((e) => e?.advertencias ?? []))];
   const fuentes = [...new Map(entries.flatMap((e) => e?.fuentes ?? []).map((f) => [f.url, f])).values()].slice(0, 15);
 
   return NextResponse.json({
